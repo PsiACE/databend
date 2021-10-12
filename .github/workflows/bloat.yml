@@ -1,0 +1,57 @@
+name: Binary Size Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Rust setup
+        run: |
+          bash ./scripts/setup/dev_setup.sh
+      
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install cargo-bloat
+        uses: actions-rs/install@v0.1
+        with:
+          crate: cargo-bloat
+          version: latest
+          use-tool-cache: true
+      
+      - name: Run cargo bloat for databend-query
+        id: query-bloat
+        run: cargo-bloat --release --bin databend-query
+
+      - name: Run cargo bloat for databend-meta
+        id: meta-bloat
+        run: cargo-bloat --release --bin databend-meta
+
+      - name: Run cargo bloat for databend-cli
+        id: cli-bloat
+        run: cargo-bloat --release --bin databend-cli
+
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v1
+        with:
+          message: |
+            **query: **
+            ```
+            ${{steps.query-bloat.outputs}}
+            ```
+            **meta: **
+            ```
+            ${{steps.meta-bloat.outputs}}
+            ```
+            **cli: **
+            ```
+            ${{steps.cli-bloat.outputs}}
+            ```
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
