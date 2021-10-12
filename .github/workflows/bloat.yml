@@ -25,33 +25,33 @@ jobs:
           crate: cargo-bloat
           version: latest
           use-tool-cache: true
-      
+
       - name: Run cargo bloat for databend-query
         id: query-bloat
-        run: cargo-bloat --release --bin databend-query
-
+        run: |
+          echo "::set-output name=bloat::$(cargo bloat --release --bin databend-query --message-format json)"
       - name: Run cargo bloat for databend-meta
         id: meta-bloat
-        run: cargo-bloat --release --bin databend-meta
-
+        run: |
+          echo "::set-output name=bloat::$(cargo bloat --release --bin databend-meta --message-format json)"
       - name: Run cargo bloat for databend-cli
         id: cli-bloat
-        run: cargo-bloat --release --bin databend-cli
-
+        run: |
+          echo "::set-output name=bloat::$(cargo bloat --release --bin databend-cli --message-format json)"
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v1
         with:
           message: |
-            **query: **
+            **query:**
+            ```json
+            ${{steps.query-bloat.outputs.bloat}}
             ```
-            ${{steps.query-bloat.outputs}}
+            **meta:**
+            ```json
+            ${{steps.meta-bloat.outputs.bloat}}
             ```
-            **meta: **
-            ```
-            ${{steps.meta-bloat.outputs}}
-            ```
-            **cli: **
-            ```
-            ${{steps.cli-bloat.outputs}}
+            **cli:**
+            ```json
+            ${{steps.cli-bloat.outputs.bloat}}
             ```
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
