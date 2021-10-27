@@ -24,39 +24,32 @@ jobs:
         run: |
           bash ./scripts/setup/dev_setup.sh
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v1
-
-      - name: Run test
-        uses: actions-rs/cargo@v1
+      - name: Cache cargo registry
+        uses: actions/cache@v2
         with:
-          command: test
-          components: rustfmt
-          args: --all-features --no-fail-fast
-        env:
-          RUST_TEST_THREADS: 2
-          RUST_LOG: debug
-          RUST_BACKTRACE: full
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests'
+          path: |
+            ~/.cargo
+            ./target
+          key: ${{ runner.os }}-cargo-coveragecache-${{ secrets.CACHE_RESET_KEY }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coveragecache-${{ secrets.CACHE_RESET_KEY }}-
+            ${{ runner.os }}-cargo-coveragecache-
 
-      - name: Install grcov
+      - name: Install tarpaulin
         uses: actions-rs/install@v0.1
         with:
-          crate: grcov
+          crate: cargo-tarpaulin
           version: latest
           use-tool-cache: true
 
       - name: Run code coverage
-        uses: actions-rs/grcov@v0.1.5
-        id: coverage
+        run: |
+          cargo tarpaulin --all-features --no-fail-fast --out Xml
 
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: ${{ steps.coverage.outputs.report }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
