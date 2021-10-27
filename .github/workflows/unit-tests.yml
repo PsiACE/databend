@@ -43,6 +43,7 @@ jobs:
           tar -zxvf cargo-tarpaulin-${{ env.TARPAULIN_VERSION }}-travis.tar.gz -C $HOME/.cargo/bin
 
       - name: Run code coverage
+        timeout-minutes: 60
         run: |
           cargo tarpaulin --all-features --no-fail-fast --timeout 180 --out Xml
 
