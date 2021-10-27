@@ -42,7 +42,7 @@ jobs:
 
       - name: Run code coverage
         run: |
-          cargo tarpaulin --all-features --no-fail-fast --out Xml
+          cargo tarpaulin --all-features --no-fail-fast --timeout 180 --out Xml
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v2
