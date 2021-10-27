@@ -3,6 +3,10 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
+  TARPAULIN_VERSION: 0.18.3
+  RUST_TEST_THREADS: 2
+  RUST_LOG: debug
+  RUST_BACKTRACE: full
 
 jobs:
   test:
@@ -34,11 +38,9 @@ jobs:
             ${{ runner.os }}-cargo-coveragecache-
 
       - name: Install tarpaulin
-        uses: actions-rs/install@v0.1
-        with:
-          crate: cargo-tarpaulin
-          version: latest
-          use-tool-cache: true
+        run: |
+          wget https://github.com/xd009642/tarpaulin/releases/download/${{ env.TARPAULIN_VERSION }}/cargo-tarpaulin-${{ env.TARPAULIN_VERSION }}-travis.tar.gz
+          tar -zxvf cargo-tarpaulin-${{ env.TARPAULIN_VERSION }}-travis.tar.gz -C $HOME/.cargo/bin
 
       - name: Run code coverage
         run: |
