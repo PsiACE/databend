@@ -11,6 +11,7 @@ env:
 jobs:
   test:
     name: "Tests"
+    timeout-minutes: 80
     runs-on: ${{ matrix.config.os }}
     strategy:
       fail-fast: true
@@ -44,8 +45,7 @@ jobs:
 
       - name: Run code coverage
         timeout-minutes: 60
-        run: |
-          cargo tarpaulin --all-features --no-fail-fast --timeout 180 --out Xml
+        run: cargo tarpaulin --all-features --no-fail-fast --timeout 180 --out Xml
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v2
