@@ -27,19 +27,21 @@ use crate::datasources::table::fuse::table_test_fixture::TestFixture;
 
 #[tokio::test]
 async fn test_fuse_table_simple_case() -> Result<()> {
-    let fixture = TestFixture::new();
+    let fixture = TestFixture::new().await;
     let ctx = fixture.ctx();
 
     // create test table
     let crate_table_plan = fixture.default_crate_table_plan();
     let catalog = ctx.get_catalog();
-    catalog.create_table(crate_table_plan)?;
+    catalog.create_table(crate_table_plan).await?;
 
     // get table
-    let table = catalog.get_table(
-        fixture.default_db().as_str(),
-        fixture.default_table().as_str(),
-    )?;
+    let table = catalog
+        .get_table(
+            fixture.default_db().as_str(),
+            fixture.default_table().as_str(),
+        )
+        .await?;
 
     // insert 10 blocks
     let num_blocks = 5;
@@ -48,12 +50,14 @@ async fn test_fuse_table_simple_case() -> Result<()> {
     table.append_data(io_ctx.clone(), insert_into_plan).await?;
 
     // get the latest tbl
-    let prev_version = table.get_table_info().version;
-    let table = catalog.get_table(
-        fixture.default_db().as_str(),
-        fixture.default_table().as_str(),
-    )?;
-    assert_ne!(prev_version, table.get_table_info().version);
+    let prev_version = table.get_table_info().ident.version;
+    let table = catalog
+        .get_table(
+            fixture.default_db().as_str(),
+            fixture.default_table().as_str(),
+        )
+        .await?;
+    assert_ne!(prev_version, table.get_table_info().ident.version);
 
     let (stats, parts) = table.read_partitions(io_ctx.clone(), None, None)?;
     assert_eq!(parts.len(), num_blocks as usize);
@@ -69,7 +73,6 @@ async fn test_fuse_table_simple_case() -> Result<()> {
             parts: Default::default(),
             statistics: Default::default(),
             description: "".to_string(),
-            scan_plan: Arc::new(Default::default()),
             tbl_args: None,
             push_downs: None,
         })
@@ -106,17 +109,19 @@ async fn test_fuse_table_simple_case() -> Result<()> {
 
 #[tokio::test]
 async fn test_fuse_table_truncate() -> Result<()> {
-    let fixture = TestFixture::new();
+    let fixture = TestFixture::new().await;
     let ctx = fixture.ctx();
 
     let crate_table_plan = fixture.default_crate_table_plan();
     let catalog = ctx.get_catalog();
-    catalog.create_table(crate_table_plan)?;
+    catalog.create_table(crate_table_plan).await?;
 
-    let table = catalog.get_table(
-        fixture.default_db().as_str(),
-        fixture.default_table().as_str(),
-    )?;
+    let table = catalog
+        .get_table(
+            fixture.default_db().as_str(),
+            fixture.default_table().as_str(),
+        )
+        .await?;
 
     let io_ctx = Arc::new(ctx.get_single_node_table_io_context()?);
     let truncate_plan = TruncateTablePlan {
@@ -125,14 +130,16 @@ async fn test_fuse_table_truncate() -> Result<()> {
     };
 
     // 1. truncate empty table
-    let prev_version = table.get_table_info().version;
+    let prev_version = table.get_table_info().ident.version;
     let r = table.truncate(io_ctx.clone(), truncate_plan.clone()).await;
-    let table = catalog.get_table(
-        fixture.default_db().as_str(),
-        fixture.default_table().as_str(),
-    )?;
+    let table = catalog
+        .get_table(
+            fixture.default_db().as_str(),
+            fixture.default_table().as_str(),
+        )
+        .await?;
     // no side effects
-    assert_eq!(prev_version, table.get_table_info().version);
+    assert_eq!(prev_version, table.get_table_info().ident.version);
     assert!(r.is_ok());
 
     // 2. truncate table which has data
@@ -145,12 +152,14 @@ async fn test_fuse_table_truncate() -> Result<()> {
     )?;
 
     // get the latest tbl
-    let prev_version = table.get_table_info().version;
-    let table = catalog.get_table(
-        fixture.default_db().as_str(),
-        fixture.default_table().as_str(),
-    )?;
-    assert_ne!(prev_version, table.get_table_info().version);
+    let prev_version = table.get_table_info().ident.version;
+    let table = catalog
+        .get_table(
+            fixture.default_db().as_str(),
+            fixture.default_table().as_str(),
+        )
+        .await?;
+    assert_ne!(prev_version, table.get_table_info().ident.version);
 
     // ensure data ingested
     let (stats, parts) =
@@ -163,12 +172,14 @@ async fn test_fuse_table_truncate() -> Result<()> {
     assert!(r.is_ok());
 
     // get the latest tbl
-    let prev_version = table.get_table_info().version;
-    let table = catalog.get_table(
-        fixture.default_db().as_str(),
-        fixture.default_table().as_str(),
-    )?;
-    assert_ne!(prev_version, table.get_table_info().version);
+    let prev_version = table.get_table_info().ident.version;
+    let table = catalog
+        .get_table(
+            fixture.default_db().as_str(),
+            fixture.default_table().as_str(),
+        )
+        .await?;
+    assert_ne!(prev_version, table.get_table_info().ident.version);
     let (stats, parts) =
         table.read_partitions(io_ctx.clone(), source_plan.push_downs.clone(), None)?;
     // cleared?

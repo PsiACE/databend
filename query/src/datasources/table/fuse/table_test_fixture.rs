@@ -23,6 +23,7 @@ use common_datavalues::DataSchemaRef;
 use common_datavalues::DataSchemaRefExt;
 use common_datavalues::DataType;
 use common_infallible::Mutex;
+use common_meta_types::TableMeta;
 use common_planners::CreateDatabasePlan;
 use common_planners::CreateTablePlan;
 use common_planners::InsertIntoPlan;
@@ -41,7 +42,7 @@ pub struct TestFixture {
 }
 
 impl TestFixture {
-    pub fn new() -> TestFixture {
+    pub async fn new() -> TestFixture {
         let tmp_dir = TempDir::new().unwrap();
         let mut config = Config::default();
         // make sure we are suing `Disk` storage
@@ -58,7 +59,7 @@ impl TestFixture {
             db: db_name,
             options: Default::default(),
         };
-        ctx.get_catalog().create_database(plan).unwrap();
+        ctx.get_catalog().create_database(plan).await.unwrap();
 
         Self {
             _tmp_dir: tmp_dir,
@@ -88,9 +89,11 @@ impl TestFixture {
             if_not_exists: false,
             db: self.default_db(),
             table: self.default_table(),
-            schema: TestFixture::default_schema(),
-            engine: "FUSE".to_string(),
-            options: Default::default(),
+            table_meta: TableMeta {
+                schema: TestFixture::default_schema(),
+                engine: "FUSE".to_string(),
+                options: Default::default(),
+            },
         }
     }
 

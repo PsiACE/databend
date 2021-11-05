@@ -27,14 +27,22 @@ pub const DISK_STORAGE_DATA_PATH: &str = "DISK_STORAGE_DATA_PATH";
 
 // S3 Storage env.
 const S3_STORAGE_REGION: &str = "S3_STORAGE_REGION";
+const S3_STORAGE_ENDPOINT_URL: &str = "S3_STORAGE_ENDPOINT_URL";
+
 const S3_STORAGE_ACCESS_KEY_ID: &str = "S3_STORAGE_ACCESS_KEY_ID";
 const S3_STORAGE_SECRET_ACCESS_KEY: &str = "S3_STORAGE_SECRET_ACCESS_KEY";
 const S3_STORAGE_BUCKET: &str = "S3_STORAGE_BUCKET";
+
+// Azure Storage Blob env.
+const AZURE_STORAGE_ACCOUNT: &str = "AZURE_STORAGE_ACCOUNT";
+const AZURE_BLOB_MASTER_KEY: &str = "AZURE_BLOB_MASTER_KEY";
+const AZURE_BLOB_CONTAINER: &str = "AZURE_BLOB_CONTAINER";
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub enum StorageType {
     Disk,
     S3,
+    AzureStorageBlob,
 }
 
 // Implement the trait
@@ -45,6 +53,7 @@ impl FromStr for StorageType {
         match s {
             "disk" => Ok(StorageType::Disk),
             "s3" => Ok(StorageType::S3),
+            "azure_storage_blob" => Ok(StorageType::AzureStorageBlob),
             _ => Err("no match for storage type"),
         }
     }
@@ -73,6 +82,10 @@ pub struct S3StorageConfig {
     #[serde(default)]
     pub region: String,
 
+    #[structopt(long, env = S3_STORAGE_ENDPOINT_URL, default_value = "", help = "Endpoint URL for S3 storage")]
+    #[serde(default)]
+    pub endpoint_url: String,
+
     #[structopt(long, env = S3_STORAGE_ACCESS_KEY_ID, default_value = "", help = "Access key for S3 storage")]
     #[serde(default)]
     pub access_key_id: String,
@@ -90,6 +103,7 @@ impl S3StorageConfig {
     pub fn default() -> Self {
         S3StorageConfig {
             region: "".to_string(),
+            endpoint_url: "".to_string(),
             access_key_id: "".to_string(),
             secret_access_key: "".to_string(),
             bucket: "".to_string(),
@@ -101,6 +115,41 @@ impl fmt::Debug for S3StorageConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{")?;
         write!(f, "s3.storage.region: \"{}\", ", self.region)?;
+        write!(f, "s3.storage.endpoint_url: \"{}\", ", self.endpoint_url)?;
+        write!(f, "s3.storage.bucket: \"{}\", ", self.bucket)?;
+        write!(f, "}}")
+    }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, StructOpt, StructOptToml)]
+pub struct AzureStorageBlobConfig {
+    #[structopt(long, env = AZURE_STORAGE_ACCOUNT, default_value = "", help = "Account for Azure storage")]
+    #[serde(default)]
+    pub account: String,
+
+    #[structopt(long, env = AZURE_BLOB_MASTER_KEY, default_value = "", help = "Master key for Azure storage")]
+    #[serde(default)]
+    pub master_key: String,
+
+    #[structopt(long, env = AZURE_BLOB_CONTAINER, default_value = "", help = "Container for Azure storage")]
+    #[serde(default)]
+    pub container: String,
+}
+
+impl AzureStorageBlobConfig {
+    pub fn default() -> Self {
+        AzureStorageBlobConfig {
+            account: "".to_string(),
+            master_key: "".to_string(),
+            container: "".to_string(),
+        }
+    }
+}
+
+impl fmt::Debug for AzureStorageBlobConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{")?;
+        write!(f, "Azure.storage.container: \"{}\", ", self.container)?;
         write!(f, "}}")
     }
 }
@@ -122,6 +171,10 @@ pub struct StorageConfig {
     // S3 storage backend config.
     #[structopt(flatten)]
     pub s3: S3StorageConfig,
+
+    // azure storage blob config.
+    #[structopt(flatten)]
+    pub azure_storage_blob: AzureStorageBlobConfig,
 }
 
 impl StorageConfig {
@@ -130,6 +183,7 @@ impl StorageConfig {
             storage_type: "disk".to_string(),
             disk: DiskStorageConfig::default(),
             s3: S3StorageConfig::default(),
+            azure_storage_blob: AzureStorageBlobConfig::default(),
         }
     }
 
@@ -150,6 +204,13 @@ impl StorageConfig {
         env_helper!(
             mut_config.storage,
             s3,
+            endpoint_url,
+            String,
+            S3_STORAGE_ENDPOINT_URL
+        );
+        env_helper!(
+            mut_config.storage,
+            s3,
             access_key_id,
             String,
             S3_STORAGE_ACCESS_KEY_ID
@@ -162,5 +223,14 @@ impl StorageConfig {
             S3_STORAGE_SECRET_ACCESS_KEY
         );
         env_helper!(mut_config.storage, s3, bucket, String, S3_STORAGE_BUCKET);
+
+        // Azure Storage Blob.
+        env_helper!(
+            mut_config.storage,
+            azure_storage_blob,
+            account,
+            String,
+            AZURE_BLOB_MASTER_KEY
+        );
     }
 }

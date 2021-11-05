@@ -37,8 +37,6 @@ mod plan_projection_test;
 #[cfg(test)]
 mod plan_rewriter_test;
 #[cfg(test)]
-mod plan_scan_test;
-#[cfg(test)]
 mod plan_select_test;
 #[cfg(test)]
 mod test;
@@ -47,7 +45,6 @@ mod plan_aggregator_final;
 mod plan_aggregator_partial;
 mod plan_broadcast;
 mod plan_builder;
-mod plan_builder_scan;
 mod plan_database_create;
 mod plan_database_drop;
 mod plan_describe_table;
@@ -79,7 +76,6 @@ mod plan_projection;
 mod plan_read_datasource;
 mod plan_remote;
 mod plan_rewriter;
-mod plan_scan;
 mod plan_select;
 mod plan_setting;
 mod plan_show_table_create;
@@ -91,13 +87,13 @@ mod plan_table_create;
 mod plan_table_drop;
 mod plan_truncate_table;
 mod plan_use_database;
+mod plan_user_create;
 mod plan_visitor;
 
 pub use plan_aggregator_final::AggregatorFinalPlan;
 pub use plan_aggregator_partial::AggregatorPartialPlan;
 pub use plan_broadcast::BroadcastPlan;
 pub use plan_builder::PlanBuilder;
-pub use plan_builder_scan::TableScanInfo;
 pub use plan_database_create::CreateDatabasePlan;
 pub use plan_database_create::DatabaseOptions;
 pub use plan_database_drop::DropDatabasePlan;
@@ -149,7 +145,6 @@ pub use plan_read_datasource::ReadDataSourcePlan;
 pub use plan_remote::RemotePlan;
 pub use plan_rewriter::PlanRewriter;
 pub use plan_rewriter::RewriteHelper;
-pub use plan_scan::ScanPlan;
 pub use plan_select::SelectPlan;
 pub use plan_setting::SettingPlan;
 pub use plan_setting::VarValue;
@@ -164,4 +159,5 @@ pub use plan_table_create::TableOptions;
 pub use plan_table_drop::DropTablePlan;
 pub use plan_truncate_table::TruncateTablePlan;
 pub use plan_use_database::UseDatabasePlan;
+pub use plan_user_create::CreateUserPlan;
 pub use plan_visitor::PlanVisitor;

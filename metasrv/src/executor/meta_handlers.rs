@@ -13,6 +13,7 @@
 // limitations under the License.
 //
 
+use std::convert::TryInto;
 use std::sync::Arc;
 
 use common_exception::ErrorCode;
@@ -27,17 +28,23 @@ use common_meta_flight::GetTableExtReq;
 use common_meta_flight::GetTablesAction;
 use common_meta_flight::UpsertTableOptionReq;
 use common_meta_raft_store::state_machine::AppliedState;
+use common_meta_types::Change;
 use common_meta_types::Cmd::CreateDatabase;
 use common_meta_types::Cmd::CreateTable;
 use common_meta_types::Cmd::DropDatabase;
 use common_meta_types::Cmd::DropTable;
+use common_meta_types::Cmd::UpsertTableOptions;
 use common_meta_types::CreateDatabaseReply;
 use common_meta_types::CreateTableReply;
 use common_meta_types::DatabaseInfo;
 use common_meta_types::LogEntry;
+use common_meta_types::MatchSeq;
+use common_meta_types::TableIdent;
 use common_meta_types::TableInfo;
+use common_meta_types::TableMeta;
 use common_meta_types::UpsertTableOptionReply;
 use log::info;
+use maplit::hashmap;
 
 use crate::executor::action_handler::RequestHandler;
 use crate::executor::ActionHandler;
@@ -57,23 +64,17 @@ impl RequestHandler<CreateDatabaseAction> for ActionHandler {
             txid: None,
             cmd: CreateDatabase {
                 name: db_name.clone(),
-                db: DatabaseInfo {
-                    database_id: 0,
-                    db: db_name.clone(),
-                },
             },
         };
 
-        let rst = self
+        let res = self
             .meta_node
             .write(cr)
             .await
             .map_err(|e| ErrorCode::MetaNodeInternalError(e.to_string()))?;
 
-        let (prev, result) = match rst {
-            AppliedState::DataBase { prev, result } => (prev, result),
-            _ => return Err(ErrorCode::MetaNodeInternalError("not a Database result")),
-        };
+        let ch: Change<u64> = res.try_into().unwrap();
+        let (prev, result) = ch.unpack_data();
 
         if prev.is_some() && !if_not_exists {
             return Err(ErrorCode::DatabaseAlreadyExists(format!(
@@ -84,7 +85,7 @@ impl RequestHandler<CreateDatabaseAction> for ActionHandler {
 
         Ok(CreateDatabaseReply {
             // TODO(xp): return DatabaseInfo?
-            database_id: result.unwrap().data.database_id,
+            database_id: result.unwrap(),
         })
     }
 }
@@ -93,10 +94,17 @@ impl RequestHandler<CreateDatabaseAction> for ActionHandler {
 impl RequestHandler<GetDatabaseAction> for ActionHandler {
     async fn handle(&self, act: GetDatabaseAction) -> common_exception::Result<DatabaseInfo> {
         let db_name = act.db;
-        let db = self.meta_node.get_database(&db_name).await?;
+        let db = self
+            .meta_node
+            .get_state_machine()
+            .await
+            .get_database(&db_name)?;
 
         match db {
-            Some(db) => Ok(db.data),
+            Some(db) => Ok(DatabaseInfo {
+                database_id: db.data,
+                db: db_name.to_string(),
+            }),
             None => Err(ErrorCode::UnknownDatabase(db_name)),
         }
     }
@@ -121,7 +129,7 @@ impl RequestHandler<DropDatabaseAction> for ActionHandler {
             .map_err(|e| ErrorCode::MetaNodeInternalError(e.to_string()))?;
 
         let (prev, _result) = match rst {
-            AppliedState::DataBase { prev, result } => (prev, result),
+            AppliedState::DatabaseId(Change { prev, result }) => (prev, result),
             _ => return Err(ErrorCode::MetaNodeInternalError("not a Database result")),
         };
 
@@ -147,23 +155,14 @@ impl RequestHandler<CreateTableAction> for ActionHandler {
 
         info!("create table: {:}: {:?}", &db_name, &table_name);
 
-        let table = TableInfo {
-            table_id: 0,
-            version: 0,
-            desc: format!("'{}'.'{}'", db_name, table_name),
-            database_id: 0, // this field is unused during the creation of table
-            schema: plan.schema.clone(),
-            engine: plan.engine.clone(),
-            name: table_name.to_string(),
-            options: plan.options.clone(),
-        };
+        let table_meta = plan.table_meta;
 
         let cr = LogEntry {
             txid: None,
             cmd: CreateTable {
                 db_name: db_name.clone(),
                 table_name: table_name.clone(),
-                table_info: table,
+                table_meta,
             },
         };
 
@@ -174,7 +173,7 @@ impl RequestHandler<CreateTableAction> for ActionHandler {
             .map_err(|e| ErrorCode::MetaNodeInternalError(e.to_string()))?;
 
         let (prev, result) = match rst {
-            AppliedState::Table { prev, result } => (prev, result),
+            AppliedState::TableIdent { prev, result } => (prev, result),
             _ => return Err(ErrorCode::MetaNodeInternalError("not a Table result")),
         };
         if prev.is_some() && !if_not_exists {
@@ -185,7 +184,7 @@ impl RequestHandler<CreateTableAction> for ActionHandler {
         }
 
         Ok(CreateTableReply {
-            table_id: result.unwrap().data.table_id,
+            table_id: result.unwrap().table_id,
         })
     }
 }
@@ -205,15 +204,14 @@ impl RequestHandler<DropTableAction> for ActionHandler {
             },
         };
 
-        let rst = self
+        let res = self
             .meta_node
             .write(cr)
             .await
             .map_err(|e| ErrorCode::MetaNodeInternalError(e.to_string()))?;
-        let (prev, _result) = match rst {
-            AppliedState::Table { prev, result } => (prev, result),
-            _ => return Err(ErrorCode::MetaNodeInternalError("not a Table result")),
-        };
+
+        let ch: Change<TableMeta> = res.try_into().unwrap();
+        let (prev, _result) = ch.unpack();
 
         if prev.is_some() || if_exists {
             Ok(())
@@ -232,13 +230,16 @@ impl RequestHandler<GetTableAction> for ActionHandler {
         let db_name = &act.db;
         let table_name = &act.table;
 
-        let x = self.meta_node.get_database(db_name).await?;
+        let x = self
+            .meta_node
+            .get_state_machine()
+            .await
+            .get_database(db_name)?;
         let db = x.ok_or_else(|| {
             ErrorCode::UnknownDatabase(format!("get table: database not found {:}", db_name))
         })?;
 
-        let db = db.data;
-        let db_id = db.database_id;
+        let db_id = db.data;
 
         let seq_table_id = self
             .meta_node
@@ -247,10 +248,15 @@ impl RequestHandler<GetTableAction> for ActionHandler {
             .ok_or_else(|| ErrorCode::UnknownTable(format!("Unknown table: '{:}'", table_name)))?;
 
         let table_id = seq_table_id.data.0;
-        let result = self.meta_node.get_table(&table_id).await?;
+        let result = self.meta_node.get_table_by_id(&table_id).await?;
 
         match result {
-            Some(table) => Ok(table.data),
+            Some(table) => Ok(TableInfo::new(
+                db_name,
+                table_name,
+                TableIdent::new(table_id, table.seq),
+                table.data,
+            )),
             None => Err(ErrorCode::UnknownTable(table_name)),
         }
     }
@@ -261,9 +267,14 @@ impl RequestHandler<GetTableExtReq> for ActionHandler {
     async fn handle(&self, act: GetTableExtReq) -> common_exception::Result<TableInfo> {
         // TODO duplicated code
         let table_id = act.tbl_id;
-        let result = self.meta_node.get_table(&table_id).await?;
+        let result = self.meta_node.get_table_by_id(&table_id).await?;
         match result {
-            Some(table) => Ok(table.data),
+            Some(table) => Ok(TableInfo::new(
+                "",
+                "",
+                TableIdent::new(table_id, table.seq),
+                table.data,
+            )),
             None => Err(ErrorCode::UnknownTable(format!(
                 "table of id {} not found",
                 act.tbl_id
@@ -278,11 +289,16 @@ impl RequestHandler<GetDatabasesAction> for ActionHandler {
         &self,
         _req: GetDatabasesAction,
     ) -> common_exception::Result<Vec<Arc<DatabaseInfo>>> {
-        let res = self.meta_node.get_databases().await?;
+        let res = self.meta_node.get_state_machine().await.get_databases()?;
 
         Ok(res
             .iter()
-            .map(|(_name, db)| Arc::new(db.clone()))
+            .map(|(name, db)| {
+                Arc::new(DatabaseInfo {
+                    database_id: *db,
+                    db: name.to_string(),
+                })
+            })
             .collect::<Vec<_>>())
     }
 }
@@ -300,13 +316,33 @@ impl RequestHandler<UpsertTableOptionReq> for ActionHandler {
         &self,
         req: UpsertTableOptionReq,
     ) -> common_exception::Result<UpsertTableOptionReply> {
-        self.meta_node
-            .upsert_table_opt(
-                req.table_id,
-                req.table_version,
-                req.option_key,
-                req.option_value,
-            )
+        let cr = LogEntry {
+            txid: None,
+            cmd: UpsertTableOptions {
+                table_id: req.table_id,
+                seq: MatchSeq::Exact(req.table_version),
+                table_options: hashmap! {
+                    req.option_key => Some(req.option_value),
+                },
+            },
+        };
+
+        let res = self
+            .meta_node
+            .write(cr)
             .await
+            .map_err(|e| ErrorCode::MetaNodeInternalError(e.to_string()))?;
+
+        if !res.changed() {
+            let ch: Change<TableMeta> = res.try_into().unwrap();
+            let (prev, _result) = ch.unwrap();
+
+            return Err(ErrorCode::TableVersionMissMatch(format!(
+                "targeting version {}, current version {}",
+                req.table_version, prev.seq,
+            )));
+        }
+
+        Ok(())
     }
 }

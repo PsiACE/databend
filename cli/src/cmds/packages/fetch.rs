@@ -16,7 +16,11 @@ use std::fs;
 use std::fs::File;
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
+use async_trait::async_trait;
+use clap::App;
+use clap::Arg;
 use clap::ArgMatches;
 use flate2::read::GzDecoder;
 use fs_extra::dir;
@@ -25,6 +29,7 @@ use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use tar::Archive;
 
+use crate::cmds::command::Command;
 use crate::cmds::Config;
 use crate::cmds::SwitchCommand;
 use crate::cmds::Writer;
@@ -63,6 +68,24 @@ pub fn unpack(tar_file: &str, target_dir: &str) -> Result<()> {
             tar_file, target_dir, e
         ))),
     };
+}
+
+pub fn download_and_unpack(
+    url: &str,
+    download_file_name: &str,
+    target_dir: &str,
+    exist: Option<String>,
+) -> Result<()> {
+    if exist.is_some() && Path::new(exist.unwrap().as_str()).exists() {
+        return Ok(());
+    }
+    if let Err(e) = download(url, download_file_name) {
+        return Err(e);
+    }
+    if let Err(e) = unpack(download_file_name, target_dir) {
+        return Err(e);
+    }
+    Ok(())
 }
 
 pub fn download(url: &str, target_file: &str) -> Result<()> {
@@ -120,20 +143,27 @@ pub fn get_rust_architecture() -> Result<String> {
 
     Ok(format!("{}-{}", arch, os))
 }
+
+fn get_latest_tag(conf: &Config) -> Result<String> {
+    let tag_url = conf.mirror.databend_tag_url.clone();
+    let resp = ureq::get(tag_url.as_str()).call()?;
+    let json: serde_json::Value = resp.into_json().unwrap();
+    Ok(format!("{}", json[0]["name"]).replace("\"", ""))
+}
+
+pub fn get_version(conf: &Config, version: Option<String>) -> Result<String> {
+    if version.is_none() || version.as_ref().unwrap().eq("latest") {
+        return get_latest_tag(conf);
+    }
+    Ok(version.unwrap())
+}
+
 impl FetchCommand {
     pub fn create(conf: Config) -> Self {
         FetchCommand { conf }
     }
 
-    fn get_latest_tag(&self) -> Result<String> {
-        let tag_url = self.conf.mirror.databend_tag_url.clone();
-        let resp = ureq::get(tag_url.as_str()).call()?;
-        let json: serde_json::Value = resp.into_json().unwrap();
-
-        Ok(format!("{}", json[0]["name"]).replace("\"", ""))
-    }
-
-    fn download_databend(
+    async fn download_databend(
         &self,
         arch: &str,
         tag: &str,
@@ -150,55 +180,70 @@ impl FetchCommand {
 
         let bin_name = format!("databend-{}-{}.tar.gz", tag, arch);
         let bin_file = format!("{}/{}", bin_download_dir, bin_name);
-        let exists = Path::new(bin_file.as_str()).exists();
-        // Download.
-        if !exists {
-            let binary_url = format!(
-                "{}/{}/{}",
-                self.conf.mirror.databend_url.clone(),
-                tag,
-                bin_name,
-            );
-            if let Err(e) = download(&binary_url, &bin_file) {
-                writer.write_err(
-                    format!("Cannot download from {}, error: {:?}", binary_url, e).as_str(),
-                )
-            }
+        let binary_url = format!(
+            "{}/{}/{}",
+            self.conf.mirror.databend_url.clone(),
+            tag,
+            bin_name,
+        );
+        if let Err(e) = download_and_unpack(
+            &*binary_url,
+            &*bin_file.clone(),
+            &*bin_unpack_dir,
+            Some(bin_file),
+        ) {
+            writer.write_err(format!("Cannot download or unpack error: {:?}", e))
         }
+        let switch = SwitchCommand::create(self.conf.clone());
+        switch.exec_matches(writer, args).await
+    }
+}
 
-        // Unpack.
-        match unpack(&bin_file, &bin_unpack_dir) {
-            Ok(_) => {
-                writer.write_ok(format!("Unpacked {} to {}", bin_file, bin_unpack_dir).as_str());
-
-                // switch to fetched version
-                let switch = SwitchCommand::create(self.conf.clone());
-                return switch.exec_match(writer, args);
-            }
-            Err(e) => {
-                writer.write_err(format!("{:?}", e).as_str());
-            }
-        };
-        Ok(())
+#[async_trait]
+impl Command for FetchCommand {
+    fn name(&self) -> &str {
+        "fetch"
     }
 
-    pub fn exec_match(&self, writer: &mut Writer, args: Option<&ArgMatches>) -> Result<()> {
+    fn clap(&self) -> App<'static> {
+        App::new("fetch").about(self.about()).arg(
+            Arg::new("version")
+                .about("Version of databend package to fetch")
+                .default_value("latest"),
+        )
+    }
+
+    fn subcommands(&self) -> Vec<Arc<dyn Command>> {
+        vec![]
+    }
+
+    fn about(&self) -> &'static str {
+        "Fetch the given version binary package"
+    }
+
+    fn is(&self, s: &str) -> bool {
+        s.contains(self.name())
+    }
+
+    async fn exec_matches(&self, writer: &mut Writer, args: Option<&ArgMatches>) -> Result<()> {
         match args {
             Some(matches) => {
                 let arch = get_rust_architecture();
                 if let Ok(arch) = arch {
-                    writer.write_ok(format!("Arch {}", arch).as_str());
-                    let current_tag = if matches.value_of("version").unwrap() == "latest" {
-                        self.get_latest_tag()?
-                    } else {
-                        matches.value_of("version").unwrap().to_string()
-                    };
-                    writer.write_ok(format!("Tag {}", current_tag).as_str());
-                    if let Err(e) = self.download_databend(&arch, &current_tag, writer, args) {
-                        writer.write_err(format!("{:?}", e).as_str());
+                    writer.write_ok(format!("Arch {}", arch));
+                    let current_tag = get_version(
+                        &self.conf,
+                        matches.value_of("version").map(|e| e.to_string()),
+                    )?;
+                    writer.write_ok(format!("Tag {}", current_tag));
+                    if let Err(e) = self
+                        .download_databend(&arch, current_tag.as_str(), writer, args)
+                        .await
+                    {
+                        writer.write_err(format!("{:?}", e));
                     }
                 } else {
-                    writer.write_err(format!("{:?}", arch.unwrap_err()).as_str());
+                    writer.write_err(format!("{:?}", arch.unwrap_err()));
                 }
             }
             None => {

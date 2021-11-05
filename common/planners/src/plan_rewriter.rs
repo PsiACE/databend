@@ -27,6 +27,7 @@ use crate::AggregatorFinalPlan;
 use crate::AggregatorPartialPlan;
 use crate::CreateDatabasePlan;
 use crate::CreateTablePlan;
+use crate::CreateUserPlan;
 use crate::DescribeTablePlan;
 use crate::DropDatabasePlan;
 use crate::DropTablePlan;
@@ -46,7 +47,6 @@ use crate::PlanNode;
 use crate::ProjectionPlan;
 use crate::ReadDataSourcePlan;
 use crate::RemotePlan;
-use crate::ScanPlan;
 use crate::SelectPlan;
 use crate::SettingPlan;
 use crate::ShowCreateTablePlan;
@@ -85,7 +85,6 @@ pub trait PlanRewriter {
             PlanNode::Sort(plan) => self.rewrite_sort(plan),
             PlanNode::Limit(plan) => self.rewrite_limit(plan),
             PlanNode::LimitBy(plan) => self.rewrite_limit_by(plan),
-            PlanNode::Scan(plan) => self.rewrite_scan(plan),
             PlanNode::ReadSource(plan) => self.rewrite_read_data_source(plan),
             PlanNode::Select(plan) => self.rewrite_select(plan),
             PlanNode::Explain(plan) => self.rewrite_explain(plan),
@@ -106,6 +105,7 @@ pub trait PlanRewriter {
             PlanNode::SubQueryExpression(plan) => self.rewrite_sub_queries_sets(plan),
             PlanNode::TruncateTable(plan) => self.rewrite_truncate_table(plan),
             PlanNode::Kill(plan) => self.rewrite_kill(plan),
+            PlanNode::CreateUser(plan) => self.create_user(plan),
         }
     }
 
@@ -276,23 +276,8 @@ pub trait PlanRewriter {
             .build()
     }
 
-    fn rewrite_scan(&mut self, plan: &ScanPlan) -> Result<PlanNode> {
-        Ok(PlanNode::Scan(plan.clone()))
-    }
-
     fn rewrite_read_data_source(&mut self, plan: &ReadDataSourcePlan) -> Result<PlanNode> {
-        let need_rewrite_plan = PlanNode::Scan(plan.scan_plan.as_ref().clone());
-        let new_scan = self.rewrite_plan_node(&need_rewrite_plan)?;
-        match new_scan {
-            PlanNode::Scan(new_scan) => {
-                let mut rewrite_plan = plan.clone();
-                rewrite_plan.scan_plan = Arc::new(new_scan);
-                Ok(PlanNode::ReadSource(rewrite_plan))
-            }
-            _ => Err(ErrorCode::BadPlanInputs(
-                "Rewrite ReadDataSource need scan plan.",
-            )),
-        }
+        Ok(PlanNode::ReadSource(plan.clone()))
     }
 
     fn rewrite_select(&mut self, plan: &SelectPlan) -> Result<PlanNode> {
@@ -350,6 +335,10 @@ pub trait PlanRewriter {
 
     fn rewrite_kill(&mut self, plan: &KillPlan) -> Result<PlanNode> {
         Ok(PlanNode::Kill(plan.clone()))
+    }
+
+    fn create_user(&mut self, plan: &CreateUserPlan) -> Result<PlanNode> {
+        Ok(PlanNode::CreateUser(plan.clone()))
     }
 }
 

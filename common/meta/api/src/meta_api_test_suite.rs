@@ -19,7 +19,9 @@ use common_datavalues::DataSchema;
 use common_datavalues::DataType;
 use common_exception::ErrorCode;
 use common_meta_types::CreateDatabaseReply;
+use common_meta_types::TableIdent;
 use common_meta_types::TableInfo;
+use common_meta_types::TableMeta;
 use common_planners::CreateDatabasePlan;
 use common_planners::CreateTablePlan;
 use common_planners::DropDatabasePlan;
@@ -28,6 +30,11 @@ use common_tracing::tracing;
 
 use crate::MetaApi;
 
+/// Test suite of `MetaApi`.
+///
+/// It is not used by this crate, but is used by other crate that impl `MetaApi`,
+/// to ensure an impl works as expected,
+/// such as `common/meta/embedded` and `metasrv`.
 pub struct MetaApiTestSuite {}
 
 impl MetaApiTestSuite {
@@ -197,9 +204,11 @@ impl MetaApiTestSuite {
                 if_not_exists: false,
                 db: db_name.to_string(),
                 table: tbl_name.to_string(),
-                schema: schema.clone(),
-                options: options.clone(),
-                engine: "JSON".to_string(),
+                table_meta: TableMeta {
+                    schema: schema.clone(),
+                    engine: "JSON".to_string(),
+                    options: options.clone(),
+                },
             };
 
             {
@@ -209,14 +218,14 @@ impl MetaApiTestSuite {
                 let got = mt.get_table(db_name, tbl_name).await?;
 
                 let want = TableInfo {
-                    database_id: 1,
-                    table_id: 1,
-                    version: 0,
+                    ident: TableIdent::new(1, 1),
                     desc: format!("'{}'.'{}'", db_name, tbl_name),
                     name: tbl_name.into(),
-                    schema: schema.clone(),
-                    engine: "JSON".to_owned(),
-                    options: options.clone(),
+                    meta: TableMeta {
+                        schema: schema.clone(),
+                        engine: "JSON".to_owned(),
+                        options: options.clone(),
+                    },
                 };
                 assert_eq!(want, got.as_ref().clone(), "get created table");
             }
@@ -229,14 +238,14 @@ impl MetaApiTestSuite {
 
                 let got = mt.get_table(db_name, tbl_name).await?;
                 let want = TableInfo {
-                    database_id: 1,
-                    table_id: 1,
-                    version: 0,
+                    ident: TableIdent::new(1, 1),
                     desc: format!("'{}'.'{}'", db_name, tbl_name),
                     name: tbl_name.into(),
-                    schema: schema.clone(),
-                    engine: "JSON".to_owned(),
-                    options: options.clone(),
+                    meta: TableMeta {
+                        schema: schema.clone(),
+                        engine: "JSON".to_owned(),
+                        options: options.clone(),
+                    },
                 };
                 assert_eq!(want, got.as_ref().clone(), "get created table");
             }
@@ -258,16 +267,56 @@ impl MetaApiTestSuite {
 
                 let got = mt.get_table("db1", "tb2").await.unwrap();
                 let want = TableInfo {
-                    database_id: 1,
-                    table_id: 1,
-                    version: 0,
+                    ident: TableIdent::new(1, 1),
                     desc: format!("'{}'.'{}'", db_name, tbl_name),
                     name: tbl_name.into(),
-                    schema: schema.clone(),
-                    engine: "JSON".to_owned(),
-                    options: options.clone(),
+                    meta: TableMeta {
+                        schema: schema.clone(),
+                        engine: "JSON".to_owned(),
+                        options: options.clone(),
+                    },
                 };
                 assert_eq!(want, got.as_ref().clone(), "get old table");
+            }
+
+            tracing::info!("--- upsert table options");
+            {
+                tracing::info!("--- upsert table options with key1=val1");
+                {
+                    let table = mt.get_table("db1", "tb2").await.unwrap();
+
+                    mt.upsert_table_option(
+                        table.ident.table_id,
+                        table.ident.version,
+                        "key1".into(),
+                        "val1".into(),
+                    )
+                    .await?;
+
+                    let table = mt.get_table("db1", "tb2").await.unwrap();
+                    assert_eq!(table.options().get("key1"), Some(&"val1".into()));
+                }
+
+                tracing::info!("--- upsert table options with key1=val1");
+                {
+                    let table = mt.get_table("db1", "tb2").await.unwrap();
+
+                    let got = mt
+                        .upsert_table_option(
+                            table.ident.table_id,
+                            table.ident.version - 1,
+                            "key1".into(),
+                            "val2".into(),
+                        )
+                        .await;
+
+                    let got = got.unwrap_err();
+                    assert_eq!(ErrorCode::TableVersionMissMatch("").code(), got.code());
+
+                    // table is not affected.
+                    let table = mt.get_table("db1", "tb2").await.unwrap();
+                    assert_eq!(table.options().get("key1"), Some(&"val1".into()));
+                }
             }
 
             tracing::info!("--- drop table with if_exists = false");
@@ -347,9 +396,11 @@ impl MetaApiTestSuite {
                 if_not_exists: false,
                 db: db_name.to_string(),
                 table: "tb1".to_string(),
-                schema: schema.clone(),
-                options: options.clone(),
-                engine: "JSON".to_string(),
+                table_meta: TableMeta {
+                    schema: schema.clone(),
+                    engine: "JSON".to_string(),
+                    options: options.clone(),
+                },
             };
 
             {
@@ -364,8 +415,8 @@ impl MetaApiTestSuite {
             tracing::info!("--- get_tables");
             {
                 let res = mt.get_tables(db_name).await?;
-                assert_eq!(1, res[0].table_id);
-                assert_eq!(2, res[1].table_id);
+                assert_eq!(1, res[0].ident.table_id);
+                assert_eq!(2, res[1].ident.table_id);
             }
         }
 

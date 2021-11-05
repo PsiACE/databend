@@ -16,12 +16,14 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use common_dal::AzureBlobAccessor;
 use common_dal::DataAccessor;
 use common_dal::DataAccessorBuilder;
 use common_dal::Local;
 use common_dal::StorageScheme;
 use common_dal::S3;
 
+use crate::configs::config_storage::AzureStorageBlobConfig;
 use crate::configs::StorageConfig;
 
 pub struct ContextDalBuilder {
@@ -42,12 +44,21 @@ impl DataAccessorBuilder for ContextDalBuilder {
         match scheme {
             StorageScheme::S3 => {
                 let conf = &conf.s3;
-                Ok(Arc::new(S3::with_credentials(
+                Ok(Arc::new(S3::try_create(
                     &conf.region,
+                    &conf.endpoint_url,
                     &conf.bucket,
                     &conf.access_key_id,
                     &conf.secret_access_key,
                 )?))
+            }
+            StorageScheme::AzureStorageBlob => {
+                let conf: &AzureStorageBlobConfig = &conf.azure_storage_blob;
+                Ok(Arc::new(AzureBlobAccessor::with_credentials(
+                    &conf.account,
+                    &conf.container,
+                    &conf.master_key,
+                )))
             }
             StorageScheme::LocalFs => Ok(Arc::new(Local::new(conf.disk.data_path.as_str()))),
         }

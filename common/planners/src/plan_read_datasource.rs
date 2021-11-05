@@ -22,7 +22,6 @@ use common_meta_types::TableInfo;
 use crate::Expression;
 use crate::Extras;
 use crate::Partitions;
-use crate::ScanPlan;
 use crate::Statistics;
 
 // TODO: Delete the scan plan field, but it depends on plan_parser:L394
@@ -32,16 +31,15 @@ pub struct ReadDataSourcePlan {
 
     /// Required fields to scan.
     ///
-    /// After optimization, only a sub set of the fields in `table_info.schema.fields` are needed.
-    /// The key is the index of the field in original `table_info.schema.fields`.
+    /// After optimization, only a sub set of the fields in `table_info.schema().fields` are needed.
+    /// The key is the index of the field in original `table_info.schema().fields`.
     ///
-    /// If it is None, one should use `table_info.schema.fields()`.
+    /// If it is None, one should use `table_info.schema().fields()`.
     pub scan_fields: Option<BTreeMap<usize, DataField>>,
 
     pub parts: Partitions,
     pub statistics: Statistics,
     pub description: String,
-    pub scan_plan: Arc<ScanPlan>,
 
     pub tbl_args: Option<Vec<Expression>>,
     pub push_downs: Option<Extras>,
@@ -54,15 +52,15 @@ impl ReadDataSourcePlan {
             .clone()
             .map(|x| {
                 let fields: Vec<_> = x.iter().map(|(_, f)| f.clone()).collect();
-                Arc::new(self.table_info.schema.project(fields))
+                Arc::new(self.table_info.schema().project(fields))
             })
-            .unwrap_or_else(|| self.table_info.schema.clone())
+            .unwrap_or_else(|| self.table_info.schema())
     }
 
     /// Return designated required fields or all fields in a hash map.
     pub fn scan_fields(&self) -> BTreeMap<usize, DataField> {
         self.scan_fields
             .clone()
-            .unwrap_or_else(|| self.table_info.schema.fields_map())
+            .unwrap_or_else(|| self.table_info.schema().fields_map())
     }
 }

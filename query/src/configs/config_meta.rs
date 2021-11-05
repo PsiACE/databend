@@ -23,6 +23,7 @@ use crate::configs::Config;
 pub const META_ADDRESS: &str = "META_ADDRESS";
 pub const META_USERNAME: &str = "META_USERNAME";
 pub const META_PASSWORD: &str = "META_PASSWORD";
+pub const META_EMBEDDED_DIR: &str = "META_EMBEDDED_DIR";
 pub const META_RPC_TLS_SERVER_ROOT_CA_CERT: &str = "META_RPC_TLS_SERVER_ROOT_CA_CERT";
 pub const META_RPC_TLS_SERVICE_DOMAIN_NAME: &str = "META_RPC_TLS_SERVICE_DOMAIN_NAME";
 
@@ -30,6 +31,11 @@ pub const META_RPC_TLS_SERVICE_DOMAIN_NAME: &str = "META_RPC_TLS_SERVICE_DOMAIN_
 /// serde(default) make the toml de to default working.
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, StructOpt, StructOptToml)]
 pub struct MetaConfig {
+    /// The dir to store persisted meta state for a embedded meta store
+    #[structopt(long, env = META_EMBEDDED_DIR, default_value = "./_meta_embedded")]
+    #[serde(default)]
+    pub meta_embedded_dir: String,
+
     #[structopt(long, env = META_ADDRESS, default_value = "", help = "MetaStore backend address")]
     #[serde(default)]
     pub meta_address: String,
@@ -71,6 +77,7 @@ pub struct MetaConfig {
 impl MetaConfig {
     pub fn default() -> Self {
         MetaConfig {
+            meta_embedded_dir: "./_meta_embedded".to_string(),
             meta_address: "".to_string(),
             meta_username: "root".to_string(),
             meta_password: "".to_string(),

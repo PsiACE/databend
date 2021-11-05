@@ -118,7 +118,7 @@ impl PlanRewriter for ProjectionPushDownImpl {
 
     fn rewrite_read_data_source(&mut self, plan: &ReadDataSourcePlan) -> Result<PlanNode> {
         // TODO: rewrite scan
-        self.get_projected_fields(plan.table_info.schema.as_ref())
+        self.get_projected_fields(plan.table_info.schema().as_ref())
             .map(|projected_fields| {
                 PlanNode::ReadSource(ReadDataSourcePlan {
                     table_info: plan.table_info.clone(),
@@ -126,7 +126,6 @@ impl PlanRewriter for ProjectionPushDownImpl {
                     parts: plan.parts.clone(),
                     statistics: plan.statistics.clone(),
                     description: plan.description.to_string(),
-                    scan_plan: plan.scan_plan.clone(),
                     tbl_args: plan.tbl_args.clone(),
                     push_downs: plan.push_downs.clone(),
                 })

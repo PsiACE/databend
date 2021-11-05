@@ -18,28 +18,26 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use clap::App;
-use clap::AppSettings;
-use clap::Arg;
 use clap::ArgMatches;
 use colored::Colorize;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::cmds::queries::query::QueryCommand;
-use crate::cmds::ClusterCommand;
-use crate::cmds::PackageCommand;
 use crate::cmds::Status;
-use crate::cmds::VersionCommand;
-use crate::cmds::Writer;
 use crate::error::CliError;
 
-const GITHUB_BASE_URL: &str = "https://api.github.com/repos/datafuselabs/databend/tags";
-const GITHUB_DATABEND_URL: &str = "https://github.com/datafuselabs/databend/releases/download";
-const GITHUB_DATABEND_TAG_URL: &str = "https://api.github.com/repos/datafuselabs/databend/tags";
+pub(crate) const GITHUB_BASE_URL: &str = "https://api.github.com/repos/datafuselabs/databend/tags";
+pub(crate) const GITHUB_DATABEND_URL: &str =
+    "https://github.com/datafuselabs/databend/releases/download";
+pub(crate) const GITHUB_DATABEND_TAG_URL: &str =
+    "https://api.github.com/repos/datafuselabs/databend/tags";
+pub(crate) const GITHUB_PLAYGROUND_URL: &str =
+    "https://github.com/datafuselabs/databend-playground/releases/download";
 
-const REPO_BASE_URL: &str = "https://repo.databend.rs/databend/tags.json";
-const REPO_DATABEND_URL: &str = "https://repo.databend.rs/databend";
-const REPO_DATABEND_TAG_URL: &str = "https://repo.databend.rs/databend/tags.json";
+pub(crate) const REPO_BASE_URL: &str = "https://repo.databend.rs/databend/tags.json";
+pub(crate) const REPO_DATABEND_URL: &str = "https://repo.databend.rs/databend";
+pub(crate) const REPO_DATABEND_TAG_URL: &str = "https://repo.databend.rs/databend/tags.json";
+pub(crate) const REPO_PLAYGROUND_URL: &str = "https://repo.databend.rs/databend";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -50,6 +48,7 @@ pub struct Config {
     pub mirror: CustomMirror,
     pub clap: ArgMatches,
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mode {
     Sql,
@@ -75,11 +74,13 @@ pub trait MirrorAsset {
     fn get_base_url(&self) -> String;
     fn get_databend_url(&self) -> String;
     fn get_databend_tag_url(&self) -> String;
+    fn get_playground_url(&self) -> String;
     fn to_mirror(&self) -> CustomMirror {
         CustomMirror {
             base_url: self.get_base_url(),
             databend_url: self.get_databend_url(),
             databend_tag_url: self.get_databend_tag_url(),
+            playground_url: self.get_playground_url(),
         }
     }
 }
@@ -97,6 +98,10 @@ impl MirrorAsset for GithubMirror {
     fn get_databend_tag_url(&self) -> String {
         GITHUB_DATABEND_TAG_URL.to_string()
     }
+
+    fn get_playground_url(&self) -> String {
+        GITHUB_PLAYGROUND_URL.to_string()
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -112,21 +117,32 @@ impl MirrorAsset for RepoMirror {
     fn get_databend_tag_url(&self) -> String {
         REPO_DATABEND_TAG_URL.to_string()
     }
+
+    fn get_playground_url(&self) -> String {
+        REPO_PLAYGROUND_URL.to_string()
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct CustomMirror {
-    pub(crate) base_url: String,
-    pub(crate) databend_url: String,
-    pub(crate) databend_tag_url: String,
+    pub base_url: String,
+    pub databend_url: String,
+    pub databend_tag_url: String,
+    pub playground_url: String,
 }
 
 impl CustomMirror {
-    fn new(base_url: String, databend_url: String, databend_tag_url: String) -> Self {
+    fn new(
+        base_url: String,
+        databend_url: String,
+        databend_tag_url: String,
+        playground_url: String,
+    ) -> Self {
         CustomMirror {
             base_url,
             databend_url,
             databend_tag_url,
+            playground_url,
         }
     }
 }
@@ -142,6 +158,10 @@ impl MirrorAsset for CustomMirror {
 
     fn get_databend_tag_url(&self) -> String {
         self.databend_tag_url.clone()
+    }
+
+    fn get_playground_url(&self) -> String {
+        self.playground_url.clone()
     }
 }
 
@@ -175,21 +195,12 @@ pub fn choose_mirror(conf: &Config) -> Result<CustomMirror, CliError> {
     }
 
     let status = Status::read(conf).expect("cannot configure status");
-    let mut writer = Writer::create();
     if let Some(mirror) = status.mirrors {
-        let custom: CustomMirror = mirror.clone();
-        if !custom.is_ok() {
-            writer.write_err(&*format!(
-                "Mirror error: cannot connect to current mirror {:?}",
-                mirror
-            ))
-        } else {
-            return Ok(mirror);
-        }
+        return Ok(mirror);
     }
 
     let default_mirrors: Vec<Box<dyn MirrorAsset>> =
-        vec![Box::new(GithubMirror {}), Box::new(RepoMirror {})];
+        vec![Box::new(RepoMirror {}), Box::new(GithubMirror {})];
     for _ in 0..2 {
         for i in &default_mirrors {
             if i.is_ok() {
@@ -206,71 +217,8 @@ pub fn choose_mirror(conf: &Config) -> Result<CustomMirror, CliError> {
 }
 
 impl Config {
-    pub(crate) fn build_cli() -> App<'static> {
-        App::new("bendctl")
-            .arg(
-                Arg::new("group")
-                    .long("group")
-                    .about("Sets the group name for configuration")
-                    .default_value("local")
-                    .env("DATABEND_GROUP")
-                    .global(true)
-                    .takes_value(true),
-            )
-            .arg(
-                Arg::new("databend_dir")
-                    .long("databend_dir")
-                    .about("Sets the directory to store databend binaries(query and store)")
-                    .default_value("~/.databend")
-                    .env("databend_dir")
-                    .global(true)
-                    .takes_value(true)
-                    .value_hint(clap::ValueHint::DirPath),
-            )
-            .arg(
-                Arg::new("download_url")
-                    .long("download_url")
-                    .about("Sets the url to download databend binaries")
-                    .default_value(REPO_DATABEND_URL)
-                    .env("DOWNLOAD_URL")
-                    .global(true)
-                    .takes_value(true),
-            )
-            .arg(
-                Arg::new("tag_url")
-                    .long("tag_url")
-                    .about("Sets the url to for databend tags")
-                    .default_value(REPO_DATABEND_TAG_URL)
-                    .env("DOWNLOAD_URL")
-                    .global(true)
-                    .takes_value(true),
-            )
-            .arg(
-                Arg::new("validation_url")
-                    .long("validation_url")
-                    .about("Sets the url to validate on custom download network connection")
-                    .env("DOWNLOAD_VALIDATION_URL")
-                    .default_value(REPO_DATABEND_TAG_URL)
-                    .global(true)
-                    .takes_value(true),
-            )
-            .subcommand(
-                App::new("completion")
-                    .setting(AppSettings::DisableVersionFlag)
-                    .about("Generate auto completion scripts for bash or zsh terminal")
-                    .arg(
-                        Arg::new("completion")
-                            .takes_value(true)
-                            .possible_values(&["bash", "zsh"]),
-                    ),
-            )
-            .subcommand(PackageCommand::generate())
-            .subcommand(VersionCommand::generate())
-            .subcommand(ClusterCommand::generate())
-            .subcommand(QueryCommand::generate())
-    }
-    pub fn create() -> Self {
-        let clap = Config::build_cli().get_matches();
+    pub fn create(clap: App<'static>) -> Self {
+        let clap = clap.get_matches();
         let config = Config {
             group: clap.clone().value_of("group").unwrap().parse().unwrap(),
             mode: Mode::Sql,
@@ -293,11 +241,32 @@ impl Config {
                     .parse()
                     .unwrap(),
                 clap.clone().value_of("tag_url").unwrap().parse().unwrap(),
+                clap.clone()
+                    .value_of("playground_url")
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
             ),
             clap,
         };
         Config::build(config)
     }
+
+    pub fn default() -> Self {
+        Config {
+            group: "".into(),
+            mode: Mode::Sql,
+            databend_dir: "~/.databend".into(),
+            clap: Default::default(),
+            mirror: CustomMirror {
+                base_url: "".into(),
+                databend_url: "".into(),
+                databend_tag_url: "".into(),
+                playground_url: "".into(),
+            },
+        }
+    }
+
     fn build(mut conf: Config) -> Self {
         let home_dir = dirs::home_dir().unwrap();
         let databend_dir = home_dir.join(".databend");

@@ -13,20 +13,17 @@
 // limitations under the License.
 
 use std::fs;
-use std::io;
 use std::io::Write;
 
-use clap::App;
-use clap_generate::generate;
-use clap_generate::generators::Bash;
-use clap_generate::generators::Zsh;
-use clap_generate::Generator;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 use crate::cmds::command::Command;
 use crate::cmds::config::Mode;
+use crate::cmds::loads::load::LoadCommand;
 use crate::cmds::queries::query::QueryCommand;
+use crate::cmds::root::RootCommand;
+use crate::cmds::ups::up::UpCommand;
 use crate::cmds::ClusterCommand;
 use crate::cmds::CommentCommand;
 use crate::cmds::Config;
@@ -35,6 +32,7 @@ use crate::cmds::HelpCommand;
 use crate::cmds::PackageCommand;
 use crate::cmds::VersionCommand;
 use crate::cmds::Writer;
+use crate::error::CliError;
 use crate::error::Result;
 
 pub struct Processor {
@@ -53,10 +51,6 @@ enum MultilineType {
     None,
 }
 
-fn print_completions<G: Generator>(gen: G, app: &mut App) {
-    generate::<G, _>(gen, app, app.get_name().to_string(), &mut io::stdout());
-}
-
 impl Processor {
     pub fn create(conf: Config) -> Self {
         fs::create_dir_all(conf.databend_dir.clone()).unwrap();
@@ -65,6 +59,8 @@ impl Processor {
             Box::new(VersionCommand::create()),
             Box::new(PackageCommand::create(conf.clone())),
             Box::new(ClusterCommand::create(conf.clone())),
+            Box::new(UpCommand::create(conf.clone())),
+            Box::new(LoadCommand::create(conf.clone())),
         ];
         let help_command = HelpCommand::create(admin_commands.clone());
         Processor {
@@ -76,62 +72,20 @@ impl Processor {
             query: QueryCommand::create(conf),
         }
     }
+
     pub async fn process_run(&mut self) -> Result<()> {
         let mut writer = Writer::create();
-        match self.env.conf.clone().clap.subcommand_name() {
-            Some("package") => {
-                let cmd = PackageCommand::create(self.env.conf.clone());
-                return cmd.exec_match(
-                    &mut writer,
-                    self.env.conf.clone().clap.subcommand_matches("package"),
-                );
+        if let Some(level) = self.env.conf.clap.value_of("log-level") {
+            if level != "info" {
+                writer.debug = true;
             }
-            Some("version") => {
-                let cmd = VersionCommand::create();
-                cmd.exec(&mut writer, "".parse().unwrap()).await
-            }
-            Some("cluster") => {
-                let cmd = ClusterCommand::create(self.env.conf.clone());
-                return cmd
-                    .exec_match(
-                        &mut writer,
-                        self.env.conf.clone().clap.subcommand_matches("cluster"),
-                    )
-                    .await;
-            }
-            Some("query") => {
-                let cmd = QueryCommand::create(self.env.conf.clone());
-                cmd.exec_match(
-                    &mut writer,
-                    self.env.conf.clone().clap.subcommand_matches("query"),
-                )
-                .await
-            }
-            Some("completion") => {
-                if let Some(generator) = self
-                    .env
-                    .conf
-                    .clone()
-                    .clap
-                    .subcommand_matches("completion")
-                    .unwrap()
-                    .value_of("completion")
-                {
-                    let mut app = Config::build_cli();
-                    eprintln!("Generating completion file for {}...", generator);
-                    match generator {
-                        "bash" => print_completions::<Bash>(Bash, &mut app),
-                        "zsh" => print_completions::<Zsh>(Zsh, &mut app),
-                        _ => panic!("Unknown generator"),
-                    }
-                }
-                Ok(())
-            }
+        }
+
+        let cmd = RootCommand::create();
+        let args = cmd.clap().get_matches();
+        match args.subcommand_name() {
             None => self.process_run_interactive().await,
-            _ => {
-                println!("Some other subcommand was used");
-                Ok(())
-            }
+            Some(_) => cmd.exec_matches(&mut writer, Some(&args)).await,
         }
     }
 
@@ -142,7 +96,12 @@ impl Processor {
         let mut multiline_type = MultilineType::None;
 
         loop {
-            let writer = Writer::create();
+            let mut writer = Writer::create();
+            if let Some(level) = self.env.conf.clap.value_of("log-level") {
+                if level != "info" {
+                    writer.debug = true;
+                }
+            }
             let prompt = if content.is_empty() {
                 self.env.prompt.as_str()
             } else {
@@ -196,13 +155,19 @@ impl Processor {
                     }
                     content.push_str(line);
                     self.readline.history_mut().add(content.clone());
-                    self.processor_line(writer, content.clone()).await?;
+                    match self.processor_line(writer, content.clone()).await {
+                        Ok(()) => Ok(()),
+                        Err(CliError::Exited) => break,
+                        Err(err) => Err(err),
+                    }?;
                     content.clear();
                     multiline_type = MultilineType::None;
                 }
                 Err(ReadlineError::Interrupted) => {
                     println!("CTRL-C");
-                    break;
+                    if self.env.conf.mode != Mode::Sql {
+                        break;
+                    }
                 }
                 Err(ReadlineError::Eof) => {
                     println!("CTRL-D");
@@ -222,7 +187,7 @@ impl Processor {
         // mode switch
         if line.to_lowercase().trim().eq("exit") || line.to_lowercase().trim().eq("quit") {
             writeln!(writer, "Bye").unwrap();
-            return Ok(());
+            return Err(CliError::Exited);
         }
         if line.to_lowercase().trim().eq("\\sql") {
             writeln!(writer, "Mode switched to SQL query mode").unwrap();
@@ -249,9 +214,10 @@ impl Processor {
         }
         // query execution mode
         if self.env.conf.mode == Mode::Sql {
-            self.query
-                .exec(&mut writer, line.trim().to_string())
-                .await?;
+            let res = self.query.exec(&mut writer, line.trim().to_string()).await;
+            if let Err(e) = res {
+                writer.write_err(format!("Cannot exeuction query, if you want to manage databend cluster or check its status, please change to admin mode(type \\admin), error: {:?}", e))
+            }
             writer.flush()?;
         } else {
             if let Some(cmd) = self.admin_commands.iter().find(|c| c.is(&*line)) {

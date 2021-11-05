@@ -35,7 +35,7 @@ impl FuseTable {
         io_ctx: Arc<TableIOContext>,
         _truncate_plan: TruncateTablePlan,
     ) -> Result<()> {
-        if let Some(prev_snapshot) = self.table_snapshot(&io_ctx)? {
+        if let Some(prev_snapshot) = self.table_snapshot(&io_ctx).await? {
             let prev_id = prev_snapshot.snapshot_id;
             let mut new_snapshot = prev_snapshot;
             new_snapshot.segments = vec![];
@@ -54,12 +54,14 @@ impl FuseTable {
             let catalog = ctx.get_catalog();
             let table_id = self.get_id();
             // TODO backoff retry
-            catalog.upsert_table_option(
-                table_id,
-                self.table_info.version,
-                TBL_OPT_KEY_SNAPSHOT_LOC.to_string(),
-                new_snapshot_loc,
-            )?
+            catalog
+                .upsert_table_option(
+                    table_id,
+                    self.table_info.ident.version,
+                    TBL_OPT_KEY_SNAPSHOT_LOC.to_string(),
+                    new_snapshot_loc,
+                )
+                .await?
         }
 
         Ok(())

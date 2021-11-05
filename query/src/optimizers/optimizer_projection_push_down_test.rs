@@ -76,7 +76,7 @@ fn test_projection_push_down_optimizer_group_by() -> Result<()> {
         Projection: max(value) as c1:String, name as c2:String\
         \n  AggregatorFinal: groupBy=[[name]], aggr=[[max(value)]]\
         \n    AggregatorPartial: groupBy=[[name]], aggr=[[max(value)]]\
-        \n      ReadDataSource: scan partitions: [1], scan schema: [name:String, value:String], statistics: [read_rows: 0, read_bytes: 0]";
+        \n      ReadDataSource: scan partitions: [1], scan schema: [name:String, value:String], statistics: [read_rows: 0, read_bytes: 0], push_downs: []";
 
     let actual = format!("{:?}", optimized);
     assert_eq!(expect, actual);
@@ -110,7 +110,6 @@ fn test_projection_push_down_optimizer_2() -> Result<()> {
             statistics.read_rows,
             statistics.read_bytes
         ),
-        scan_plan: Arc::new(ScanPlan::empty()),
         tbl_args: None,
         push_downs: None,
     });
@@ -169,7 +168,6 @@ fn test_projection_push_down_optimizer_3() -> Result<()> {
             statistics.read_rows,
             statistics.read_bytes
         ),
-        scan_plan: Arc::new(ScanPlan::empty()),
         tbl_args: None,
         push_downs: None,
     });
@@ -218,7 +216,7 @@ fn test_projection_push_down_optimizer_4() -> Result<()> {
 
     let expect = "Projection: substring(value, 1, 3) as c1:String\
                         \n  Expression: substring(value, 1, 3):String (Before Projection)\
-                        \n    ReadDataSource: scan partitions: [1], scan schema: [value:String], statistics: [read_rows: 0, read_bytes: 0]";
+                        \n    ReadDataSource: scan partitions: [1], scan schema: [value:String], statistics: [read_rows: 0, read_bytes: 0], push_downs: []";
 
     let actual = format!("{:?}", optimized);
     assert_eq!(expect, actual);

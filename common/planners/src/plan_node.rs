@@ -24,6 +24,7 @@ use crate::AggregatorFinalPlan;
 use crate::AggregatorPartialPlan;
 use crate::CreateDatabasePlan;
 use crate::CreateTablePlan;
+use crate::CreateUserPlan;
 use crate::DescribeTablePlan;
 use crate::DropDatabasePlan;
 use crate::DropTablePlan;
@@ -39,7 +40,6 @@ use crate::LimitPlan;
 use crate::ProjectionPlan;
 use crate::ReadDataSourcePlan;
 use crate::RemotePlan;
-use crate::ScanPlan;
 use crate::SelectPlan;
 use crate::SettingPlan;
 use crate::ShowCreateTablePlan;
@@ -48,6 +48,7 @@ use crate::StagePlan;
 use crate::TruncateTablePlan;
 use crate::UseDatabasePlan;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub enum PlanNode {
     Empty(EmptyPlan),
@@ -63,7 +64,6 @@ pub enum PlanNode {
     Sort(SortPlan),
     Limit(LimitPlan),
     LimitBy(LimitByPlan),
-    Scan(ScanPlan),
     ReadSource(ReadDataSourcePlan),
     Select(SelectPlan),
     Explain(ExplainPlan),
@@ -79,6 +79,7 @@ pub enum PlanNode {
     ShowCreateTable(ShowCreateTablePlan),
     SubQueryExpression(SubQueriesSetPlan),
     Kill(KillPlan),
+    CreateUser(CreateUserPlan),
 }
 
 impl PlanNode {
@@ -89,7 +90,6 @@ impl PlanNode {
             PlanNode::Stage(v) => v.schema(),
             PlanNode::Broadcast(v) => v.schema(),
             PlanNode::Remote(v) => v.schema(),
-            PlanNode::Scan(v) => v.schema(),
             PlanNode::Projection(v) => v.schema(),
             PlanNode::Expression(v) => v.schema(),
             PlanNode::AggregatorPartial(v) => v.schema(),
@@ -114,6 +114,7 @@ impl PlanNode {
             PlanNode::ShowCreateTable(v) => v.schema(),
             PlanNode::SubQueryExpression(v) => v.schema(),
             PlanNode::Kill(v) => v.schema(),
+            PlanNode::CreateUser(v) => v.schema(),
         }
     }
 
@@ -122,7 +123,6 @@ impl PlanNode {
             PlanNode::Empty(_) => "EmptyPlan",
             PlanNode::Stage(_) => "StagePlan",
             PlanNode::Broadcast(_) => "BroadcastPlan",
-            PlanNode::Scan(_) => "ScanPlan",
             PlanNode::Remote(_) => "RemotePlan",
             PlanNode::Projection(_) => "ProjectionPlan",
             PlanNode::Expression(_) => "ExpressionPlan",
@@ -148,6 +148,7 @@ impl PlanNode {
             PlanNode::ShowCreateTable(_) => "ShowCreateTablePlan",
             PlanNode::SubQueryExpression(_) => "CreateSubQueriesSets",
             PlanNode::Kill(_) => "KillQuery",
+            PlanNode::CreateUser(_) => "CreateUser",
         }
     }
 

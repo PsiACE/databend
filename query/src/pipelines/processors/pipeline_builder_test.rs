@@ -38,7 +38,7 @@ async fn test_local_pipeline_builds() -> Result<()> {
             plan: "\
             Projection: number as c1:UInt64, number as c2:UInt64\
             \n  Sort: number:UInt64\
-            \n    ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 10, read_bytes: 80]",
+            \n    ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 10, read_bytes: 80], push_downs: []",
 
             pipeline: "\
             ProjectionTransform × 1 processor\
@@ -73,7 +73,7 @@ async fn test_local_pipeline_builds() -> Result<()> {
             plan: "\
             Projection: number as c1:UInt64, number as c2:UInt64\
             \n  Sort: number:UInt64, number:UInt64\
-            \n    ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 10, read_bytes: 80]",
+            \n    ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 10, read_bytes: 80], push_downs: []",
 
 
             pipeline: "\
@@ -110,7 +110,7 @@ async fn test_local_pipeline_builds() -> Result<()> {
             Projection: number as c1:UInt64, (number + 1) as c2:UInt64\
             \n  Sort: number:UInt64, (number + 1):UInt64\
             \n    Expression: number:UInt64, (number + 1):UInt64 (Before OrderBy)\
-            \n      ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 10, read_bytes: 80]",
+            \n      ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 10, read_bytes: 80], push_downs: []",
 
             pipeline: "\
             ProjectionTransform × 1 processor\
@@ -136,6 +136,38 @@ async fn test_local_pipeline_builds() -> Result<()> {
                 "| 1  | 2  |",
                 "| 0  | 1  |",
                 "+----+----+",
+            ]
+        },
+        Test {
+            name: "select-order-by-limit-with-offset-pass",
+            query:
+                "select number from numbers_mt(100) order by number asc limit 5 offset 5",
+
+            plan: "\
+            Limit: 5, 5\
+            \n  Projection: number:UInt64\
+            \n    Sort: number:UInt64\
+            \n      ReadDataSource: scan partitions: [8], scan schema: [number:UInt64], statistics: [read_rows: 100, read_bytes: 800], push_downs: []",
+
+            pipeline: "\
+            LimitTransform × 1 processor\
+            \n  ProjectionTransform × 1 processor\
+            \n    SortMergeTransform × 1 processor\
+            \n      Merge (SortMergeTransform × 8 processors) to (SortMergeTransform × 1)\
+            \n        SortMergeTransform × 8 processors\
+            \n          SortPartialTransform × 8 processors\
+            \n            SourceTransform × 8 processors",
+
+            block: vec![
+                "+--------+",
+                "| number |",
+                "+--------+",
+                "| 5      |",
+                "| 6      |",
+                "| 7      |",
+                "| 8      |",
+                "| 9      |",
+                "+--------+",
             ]
         },
     ];

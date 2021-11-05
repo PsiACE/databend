@@ -182,6 +182,7 @@ build_exceptions! {
     UnexpectedError(54),
     DateTimeParseError(55),
     BadPredicateRows(56),
+    SHA1CheckFailed(57),
 
     // uncategorized
     UnexpectedResponseType(600),
@@ -221,7 +222,8 @@ build_exceptions! {
 
     ConcurrentSnapshotInstall(2404),
     IllegalSnapshot(2405),
-    TableVersionMissMatch(2406),
+    UnknownTableId(2406),
+    TableVersionMissMatch(2407),
 
     // KVSrv server error
 
@@ -261,7 +263,6 @@ build_exceptions! {
     NamespaceIllegalNodeFormat(4050),
 
     // storage-api error codes
-    IllegalScanPlan(5000),
     ReadFileError(5001),
     BrokenChannel(5002),
 
@@ -505,7 +506,11 @@ impl From<&Status> for ErrorCode {
     fn from(status: &Status) -> Self {
         match status.code() {
             tonic::Code::Unknown => {
-                match serde_json::from_slice::<SerializedError>(status.details()) {
+                let details = status.details();
+                if details.is_empty() {
+                    return ErrorCode::UnknownException(status.message());
+                }
+                match serde_json::from_slice::<SerializedError>(details) {
                     Err(error) => ErrorCode::from(error),
                     Ok(serialized_error) => match serialized_error.backtrace.len() {
                         0 => {

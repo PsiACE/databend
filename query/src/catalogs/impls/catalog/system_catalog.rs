@@ -20,7 +20,9 @@ use common_exception::Result;
 use common_meta_types::CreateDatabaseReply;
 use common_meta_types::MetaId;
 use common_meta_types::MetaVersion;
+use common_meta_types::TableIdent;
 use common_meta_types::TableInfo;
+use common_meta_types::TableMeta;
 use common_meta_types::UpsertTableOptionReply;
 use common_planners::CreateDatabasePlan;
 use common_planners::CreateTablePlan;
@@ -73,6 +75,7 @@ impl SystemCatalog {
             Arc::new(system::ProcessesTable::create(next_id())),
             Arc::new(system::ConfigsTable::create(next_id())),
             Arc::new(system::MetricsTable::create(next_id())),
+            Arc::new(system::ColumnsTable::create(next_id())),
         ];
 
         let mut tables = InMemoryMetas::create();
@@ -89,12 +92,13 @@ impl SystemCatalog {
     }
 }
 
+#[async_trait::async_trait]
 impl Catalog for SystemCatalog {
-    fn get_databases(&self) -> Result<Vec<Arc<dyn Database>>> {
+    async fn get_databases(&self) -> Result<Vec<Arc<dyn Database>>> {
         Ok(vec![self.sys_db.clone()])
     }
 
-    fn get_database(&self, db_name: &str) -> Result<Arc<dyn Database>> {
+    async fn get_database(&self, db_name: &str) -> Result<Arc<dyn Database>> {
         if db_name == "system" {
             return Ok(self.sys_db.clone());
         }
@@ -104,9 +108,9 @@ impl Catalog for SystemCatalog {
         )))
     }
 
-    fn get_table(&self, db_name: &str, table_name: &str) -> Result<Arc<dyn Table>> {
+    async fn get_table(&self, db_name: &str, table_name: &str) -> Result<Arc<dyn Table>> {
         // ensure db exists
-        let _db = self.get_database(db_name)?;
+        let _db = self.get_database(db_name).await?;
 
         let table = self
             .sys_db_meta
@@ -117,22 +121,23 @@ impl Catalog for SystemCatalog {
         Ok(table.clone())
     }
 
-    fn get_tables(&self, db_name: &str) -> Result<Vec<Arc<dyn Table>>> {
+    async fn get_tables(&self, db_name: &str) -> Result<Vec<Arc<dyn Table>>> {
         // ensure db exists
-        let _db = self.get_database(db_name)?;
+        let _db = self.get_database(db_name).await?;
 
         Ok(self.sys_db_meta.name_to_table.values().cloned().collect())
     }
 
-    fn get_table_by_id(&self, table_id: MetaId) -> Result<Arc<dyn Table>> {
+    async fn get_table_meta_by_id(&self, table_id: MetaId) -> Result<(TableIdent, Arc<TableMeta>)> {
         let table =
             self.sys_db_meta.id_to_table.get(&table_id).ok_or_else(|| {
                 ErrorCode::UnknownTable(format!("Unknown table id: '{}'", table_id))
             })?;
-        Ok(table.clone())
+        let ti = table.get_table_info();
+        Ok((ti.ident.clone(), Arc::new(ti.meta.clone())))
     }
 
-    fn upsert_table_option(
+    async fn upsert_table_option(
         &self,
         table_id: MetaId,
         _table_version: MetaVersion,
@@ -145,24 +150,30 @@ impl Catalog for SystemCatalog {
         )))
     }
 
-    fn create_table(&self, _plan: CreateTablePlan) -> Result<()> {
+    async fn create_table(&self, _plan: CreateTablePlan) -> Result<()> {
         unimplemented!("programming error: SystemCatalog does not support create table")
     }
 
-    fn drop_table(&self, _plan: DropTablePlan) -> Result<()> {
+    async fn drop_table(&self, _plan: DropTablePlan) -> Result<()> {
         unimplemented!("programming error: SystemCatalog does not support drop table")
     }
 
-    fn create_database(&self, _plan: CreateDatabasePlan) -> Result<CreateDatabaseReply> {
+    async fn create_database(&self, _plan: CreateDatabasePlan) -> Result<CreateDatabaseReply> {
         Err(ErrorCode::UnImplement("Cannot create system database"))
     }
 
-    fn drop_database(&self, _plan: DropDatabasePlan) -> Result<()> {
+    async fn drop_database(&self, _plan: DropDatabasePlan) -> Result<()> {
         Err(ErrorCode::UnImplement("Cannot drop system database"))
     }
 
     fn build_table(&self, table_info: &TableInfo) -> Result<Arc<dyn Table>> {
-        let table_id = table_info.table_id;
-        self.get_table_by_id(table_id)
+        let table_id = table_info.ident.table_id;
+
+        let table =
+            self.sys_db_meta.id_to_table.get(&table_id).ok_or_else(|| {
+                ErrorCode::UnknownTable(format!("Unknown table id: '{}'", table_id))
+            })?;
+
+        Ok(table.clone())
     }
 }

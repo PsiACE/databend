@@ -27,17 +27,9 @@ jobs:
         run: |
           bash ./scripts/setup/dev_setup.sh
 
-      - name: Cache cargo registry
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo
-            ./target
-          key: ${{ runner.os }}-cargo-coveragecache-${{ secrets.CACHE_RESET_KEY }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-coveragecache-${{ secrets.CACHE_RESET_KEY }}-
-            ${{ runner.os }}-cargo-coveragecache-
-
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v1
+            
       - name: Install tarpaulin
         run: |
           wget https://github.com/xd009642/tarpaulin/releases/download/${{ env.TARPAULIN_VERSION }}/cargo-tarpaulin-${{ env.TARPAULIN_VERSION }}-travis.tar.gz

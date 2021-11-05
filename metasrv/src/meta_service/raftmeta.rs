@@ -37,6 +37,7 @@ use common_base::tokio;
 use common_base::tokio::sync::watch;
 use common_base::tokio::sync::Mutex;
 use common_base::tokio::sync::RwLock;
+use common_base::tokio::sync::RwLockReadGuard;
 use common_base::tokio::sync::RwLockWriteGuard;
 use common_base::tokio::task::JoinHandle;
 use common_exception::prelude::ErrorCode;
@@ -52,13 +53,12 @@ use common_meta_raft_store::state_machine::TableLookupKey;
 use common_meta_raft_store::state_machine::TableLookupValue;
 use common_meta_sled_store::get_sled_db;
 use common_meta_types::Cmd;
-use common_meta_types::DatabaseInfo;
 use common_meta_types::LogEntry;
-use common_meta_types::MatchSeq;
 use common_meta_types::Node;
 use common_meta_types::NodeId;
 use common_meta_types::SeqV;
 use common_meta_types::TableInfo;
+use common_meta_types::TableMeta;
 use common_tracing::tracing;
 use common_tracing::tracing::Instrument;
 
@@ -983,14 +983,8 @@ impl MetaNode {
         Ok(_resp)
     }
 
-    /// Get a database from local meta state machine.
-    /// The returned value may not be the latest written.
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn get_database(&self, name: &str) -> Result<Option<SeqV<DatabaseInfo>>, ErrorCode> {
-        // inconsistent get: from local state machine
-
-        let sm = self.sto.state_machine.read().await;
-        sm.get_database(name)
+    pub async fn get_state_machine(&self) -> RwLockReadGuard<'_, StateMachine> {
+        self.sto.state_machine.read().await
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
@@ -1011,13 +1005,6 @@ impl MetaNode {
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn get_databases(&self) -> Result<Vec<(String, DatabaseInfo)>, ErrorCode> {
-        let sm = self.sto.state_machine.read().await;
-
-        sm.get_databases()
-    }
-
-    #[tracing::instrument(level = "debug", skip(self))]
     pub async fn get_tables(&self, db_name: &str) -> Result<Vec<TableInfo>, ErrorCode> {
         // inconsistent get: from local state machine
 
@@ -1026,44 +1013,11 @@ impl MetaNode {
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn get_table(&self, tid: &u64) -> Result<Option<SeqV<TableInfo>>, ErrorCode> {
+    pub async fn get_table_by_id(&self, tid: &u64) -> Result<Option<SeqV<TableMeta>>, ErrorCode> {
         // inconsistent get: from local state machine
 
         let sm = self.sto.state_machine.read().await;
-        sm.get_table(tid)
-    }
-
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn upsert_table_opt(
-        &self,
-        table_id: u64,
-        table_version: u64,
-        opt_key: String,
-        opt_value: String,
-    ) -> common_exception::Result<()> {
-        // non-consensus modification, tobe fixed latter
-        let sm = self.sto.state_machine.write().await;
-        let seq_table = sm.tables().get(&table_id)?;
-        if let Some(tbl) = seq_table {
-            let seq = tbl.seq;
-            let mut tbl = tbl.data;
-            if tbl.version != table_version {
-                Err(ErrorCode::TableVersionMissMatch(format!(
-                    "targeting version {}, current version {}",
-                    table_version, tbl.version,
-                )))
-            } else {
-                tbl.options.insert(opt_key, opt_value);
-                tbl.version += 1;
-                sm.upsert_table(tbl, &MatchSeq::Exact(seq)).await?;
-                Ok(())
-            }
-        } else {
-            Err(ErrorCode::UnknownTable(format!(
-                "unknown table of id {}",
-                table_id
-            )))
-        }
+        sm.get_table_by_id(tid)
     }
 
     #[tracing::instrument(level = "debug", skip(self))]

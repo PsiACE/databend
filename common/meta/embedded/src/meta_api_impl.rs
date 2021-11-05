@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::convert::TryInto;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -20,19 +21,24 @@ use common_exception::Result;
 use common_meta_api::MetaApi;
 use common_meta_raft_store::state_machine::AppliedState;
 use common_meta_raft_store::state_machine::TableLookupKey;
+use common_meta_types::Change;
 use common_meta_types::Cmd;
 use common_meta_types::CreateDatabaseReply;
 use common_meta_types::CreateTableReply;
 use common_meta_types::DatabaseInfo;
+use common_meta_types::MatchSeq;
 use common_meta_types::MetaId;
 use common_meta_types::MetaVersion;
+use common_meta_types::TableIdent;
 use common_meta_types::TableInfo;
+use common_meta_types::TableMeta;
 use common_meta_types::UpsertTableOptionReply;
 use common_planners::CreateDatabasePlan;
 use common_planners::CreateTablePlan;
 use common_planners::DropDatabasePlan;
 use common_planners::DropTablePlan;
 use common_tracing::tracing;
+use maplit::hashmap;
 
 use crate::MetaEmbedded;
 
@@ -41,19 +47,13 @@ impl MetaApi for MetaEmbedded {
     async fn create_database(&self, plan: CreateDatabasePlan) -> Result<CreateDatabaseReply> {
         let cmd = Cmd::CreateDatabase {
             name: plan.db.clone(),
-            db: DatabaseInfo {
-                database_id: 0,
-                db: plan.db.clone(),
-            },
         };
 
         let mut sm = self.inner.lock().await;
         let res = sm.apply_cmd(&cmd).await?;
 
-        let (prev, result) = match res {
-            AppliedState::DataBase { prev, result } => (prev, result),
-            _ => return Err(ErrorCode::MetaNodeInternalError("not a Database result")),
-        };
+        let ch: Change<u64> = res.try_into().unwrap();
+        let (prev, result) = ch.unpack_data();
 
         assert!(result.is_some());
 
@@ -65,7 +65,7 @@ impl MetaApi for MetaEmbedded {
         }
 
         Ok(CreateDatabaseReply {
-            database_id: result.unwrap().data.database_id,
+            database_id: result.unwrap(),
         })
     }
 
@@ -94,7 +94,12 @@ impl MetaApi for MetaEmbedded {
         let res = sm
             .get_database(db)?
             .ok_or_else(|| ErrorCode::UnknownDatabase(db.to_string()))?;
-        Ok(Arc::new(res.data))
+
+        let dbi = DatabaseInfo {
+            database_id: res.data,
+            db: db.to_string(),
+        };
+        Ok(Arc::new(dbi))
     }
 
     async fn get_databases(&self) -> Result<Vec<Arc<DatabaseInfo>>> {
@@ -102,7 +107,12 @@ impl MetaApi for MetaEmbedded {
         let res = sm.get_databases()?;
         Ok(res
             .iter()
-            .map(|(_name, db)| Arc::new(db.clone()))
+            .map(|(name, db)| {
+                Arc::new(DatabaseInfo {
+                    database_id: *db,
+                    db: name.to_string(),
+                })
+            })
             .collect::<Vec<_>>())
     }
 
@@ -113,29 +123,20 @@ impl MetaApi for MetaEmbedded {
 
         tracing::info!("create table: {:}: {:?}", &db_name, &table_name);
 
-        let table = TableInfo {
-            table_id: 0,
-            version: 0,
-            desc: format!("'{}'.'{}'", db_name, table_name),
-            database_id: 0, // this field is unused during the creation of table
-            schema: plan.schema.clone(),
-            engine: plan.engine.clone(),
-            name: table_name.to_string(),
-            options: plan.options.clone(),
-        };
+        let table_meta = plan.table_meta;
 
         let cr = Cmd::CreateTable {
             db_name: db_name.clone(),
             table_name: table_name.clone(),
-            table_info: table,
+            table_meta,
         };
 
         let mut sm = self.inner.lock().await;
         let res = sm.apply_cmd(&cr).await?;
         let (prev, result) = match res {
-            AppliedState::Table { prev, result } => (prev, result),
+            AppliedState::TableIdent { prev, result } => (prev, result),
             _ => {
-                panic!("not Table result");
+                panic!("not TableIdent result");
             }
         };
 
@@ -148,7 +149,7 @@ impl MetaApi for MetaEmbedded {
             )))
         } else {
             Ok(CreateTableReply {
-                table_id: result.unwrap().data.table_id,
+                table_id: result.unwrap().table_id,
             })
         }
     }
@@ -178,42 +179,39 @@ impl MetaApi for MetaEmbedded {
         Ok(())
     }
 
-    async fn get_table(&self, db: &str, table: &str) -> Result<Arc<TableInfo>> {
+    async fn get_table(&self, db: &str, table_name: &str) -> Result<Arc<TableInfo>> {
         let sm = self.inner.lock().await;
 
         let seq_db = sm.get_database(db)?.ok_or_else(|| {
             ErrorCode::UnknownDatabase(format!("get table: database not found {:}", db))
         })?;
 
-        let dbi = seq_db.data;
-        let db_id = dbi.database_id;
+        let db_id = seq_db.data;
 
         let table_id = sm
             .table_lookup()
             .get(&TableLookupKey {
                 database_id: db_id,
-                table_name: table.to_string(),
+                table_name: table_name.to_string(),
             })?
-            .ok_or_else(|| ErrorCode::UnknownTable(format!("Unknown table: '{:}'", table)))?;
+            .ok_or_else(|| ErrorCode::UnknownTable(format!("Unknown table: '{:}'", table_name)))?;
         let table_id = table_id.data.0;
 
         let seq_table = sm
-            .get_table(&table_id)?
-            .ok_or_else(|| ErrorCode::UnknownTable(table.to_string()))?;
+            .get_table_by_id(&table_id)?
+            .ok_or_else(|| ErrorCode::UnknownTable(table_name.to_string()))?;
 
-        let tablei = seq_table.data;
+        let version = seq_table.seq;
+        let table_meta = seq_table.data;
 
-        let rst = TableInfo {
-            database_id: tablei.database_id,
-            table_id: tablei.table_id,
-            version: tablei.version, // placeholder, not yet implemented in meta service
-            desc: tablei.desc.clone(),
-            name: tablei.name.clone(),
-            schema: tablei.schema,
-            engine: tablei.engine.clone(),
-            options: tablei.options,
+        let table_info = TableInfo {
+            ident: TableIdent::new(table_id, version),
+            desc: format!("'{}'.'{}'", db, table_name),
+            name: table_name.to_string(),
+            meta: table_meta,
         };
-        Ok(Arc::new(rst))
+
+        Ok(Arc::new(table_info))
     }
 
     async fn get_tables(&self, db: &str) -> Result<Vec<Arc<TableInfo>>> {
@@ -225,35 +223,47 @@ impl MetaApi for MetaEmbedded {
             .collect::<Vec<_>>())
     }
 
-    async fn get_table_by_id(&self, table_id: MetaId) -> Result<Arc<TableInfo>> {
+    async fn get_table_by_id(&self, table_id: MetaId) -> Result<(TableIdent, Arc<TableMeta>)> {
         let sm = self.inner.lock().await;
-        let table = sm.get_table(&table_id)?.ok_or_else(|| {
+        let table = sm.get_table_by_id(&table_id)?.ok_or_else(|| {
             ErrorCode::UnknownTable(format!("table of id {} not found", table_id))
         })?;
 
-        let tablei = table.data;
+        let version = table.seq;
+        let table_info = table.data;
 
-        let rst = TableInfo {
-            database_id: tablei.database_id,
-            table_id: tablei.table_id,
-            version: tablei.version, // placeholder, not yet implemented in meta service
-            desc: tablei.desc.clone(),
-            name: tablei.name.clone(),
-            schema: tablei.schema,
-            engine: tablei.engine.clone(),
-            options: tablei.options,
-        };
-        Ok(Arc::new(rst))
+        Ok((TableIdent::new(table_id, version), Arc::new(table_info)))
     }
 
     async fn upsert_table_option(
         &self,
-        _table_id: MetaId,
-        _table_version: MetaVersion,
-        _option_key: String,
-        _option_value: String,
+        table_id: MetaId,
+        table_version: MetaVersion,
+        option_key: String,
+        option_value: String,
     ) -> Result<UpsertTableOptionReply> {
-        todo!()
+        let mut sm = self.inner.lock().await;
+
+        let cmd = Cmd::UpsertTableOptions {
+            table_id,
+            seq: MatchSeq::Exact(table_version),
+            table_options: hashmap! {
+                option_key => Some(option_value),
+            },
+        };
+
+        let res = sm.apply_cmd(&cmd).await?;
+        if !res.changed() {
+            let ch: Change<TableMeta> = res.try_into().unwrap();
+            let (prev, _result) = ch.unwrap();
+
+            return Err(ErrorCode::TableVersionMissMatch(format!(
+                "targeting version {}, current version {}",
+                table_version, prev.seq,
+            )));
+        }
+
+        Ok(())
     }
 
     fn name(&self) -> String {

@@ -39,6 +39,7 @@ common-mem-allocator = { path = "../common/mem-allocator" }
 common-meta-api = { path = "../common/meta/api" }
 common-meta-embedded = { path = "../common/meta/embedded" }
 common-meta-flight = {path = "../common/meta/flight" }
+common-meta-sled-store = { path = "../common/meta/sled-store" }
 common-meta-types = {path = "../common/meta/types"}
 common-macros = { path = "../common/macros" }
 common-metrics = { path = "../common/metrics" }
@@ -61,7 +62,7 @@ bumpalo = "3.8.0"
 byteorder = "1"
 bytes = "1"
 cargo-license = "0.4.2"
-cargo_metadata = "0.14.0"
+cargo_metadata = "0.14.1"
 chrono =  "0.4.0"
 chrono-tz = "0.6"
 crossbeam = "0.8"

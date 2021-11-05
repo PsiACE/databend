@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+use std::convert::TryInto;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -21,14 +23,18 @@ use async_raft::raft::EntryPayload;
 use async_raft::raft::MembershipConfig;
 use async_raft::LogId;
 use common_base::tokio;
+use common_exception::ErrorCode;
+use common_meta_types::Change;
 use common_meta_types::Cmd;
 use common_meta_types::KVMeta;
 use common_meta_types::LogEntry;
 use common_meta_types::MatchSeq;
 use common_meta_types::Operation;
 use common_meta_types::SeqV;
+use common_meta_types::TableMeta;
 use common_tracing::tracing;
 use maplit::btreeset;
+use maplit::hashmap;
 use pretty_assertions::assert_eq;
 
 use crate::init_raft_store_ut;
@@ -131,15 +137,11 @@ async fn test_state_machine_apply_add_database() -> anyhow::Result<()> {
         let resp = m
             .apply_cmd(&Cmd::CreateDatabase {
                 name: c.name.to_string(),
-                db: Default::default(),
             })
             .await?;
 
         let (prev, result) = match resp {
-            AppliedState::DataBase { prev, result } => (
-                prev.map(|kv_value| kv_value.data.database_id),
-                result.map(|kv_value| kv_value.data.database_id),
-            ),
+            AppliedState::DatabaseId(ch) => ch.map(|x| x.data),
             _ => {
                 panic!("expect AppliedState::Database")
             }
@@ -160,7 +162,169 @@ async fn test_state_machine_apply_add_database() -> anyhow::Result<()> {
         let got = m
             .get_database(c.name)?
             .ok_or_else(|| anyhow::anyhow!("db not found: {}", c.name))?;
-        assert_eq!(*want, got.data.database_id);
+        assert_eq!(*want, got.data);
+    }
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_state_machine_apply_upsert_table_option() -> anyhow::Result<()> {
+    let (_log_guards, ut_span) = init_raft_store_ut!();
+    let _ent = ut_span.enter();
+
+    let tc = new_raft_test_context();
+    let mut m = StateMachine::open(&tc.raft_config, 1).await?;
+
+    tracing::info!("--- prepare a table");
+    m.apply_cmd(&Cmd::CreateDatabase {
+        name: "db1".to_string(),
+    })
+    .await?;
+
+    let resp = m
+        .apply_cmd(&Cmd::CreateTable {
+            db_name: "db1".to_string(),
+            table_name: "tb1".to_string(),
+            table_meta: Default::default(),
+        })
+        .await?;
+
+    let (table_id, mut version) = match resp {
+        AppliedState::TableIdent { result, .. } => {
+            let r = result.unwrap();
+            (r.table_id, r.version)
+        }
+        _ => {
+            panic!("expect AppliedState::TableIdent")
+        }
+    };
+
+    tracing::info!("--- upsert options on empty table options");
+    {
+        let resp = m
+            .apply_cmd(&Cmd::UpsertTableOptions {
+                table_id,
+                seq: MatchSeq::Exact(version),
+                table_options: hashmap! {
+                    "a".to_string() => Some("A".to_string()),
+                    "b".to_string() => None,
+                },
+            })
+            .await?;
+
+        let ch: Change<TableMeta> = resp.try_into().unwrap();
+        let (prev, result) = ch.unwrap();
+
+        tracing::info!("--- check prev state is returned");
+        {
+            assert_eq!(version, prev.seq);
+            assert_eq!(HashMap::new(), prev.data.options);
+        }
+
+        tracing::info!("--- check result state, deleting b has no effect");
+        {
+            assert!(result.seq > version);
+            assert_eq!(
+                hashmap! {
+                    "a".to_string() => "A".to_string()
+                },
+                result.data.options
+            );
+        }
+    }
+
+    tracing::info!("--- check table is updated");
+    {
+        let got = m.get_table_by_id(&table_id)?.unwrap();
+        assert!(got.seq > version);
+        assert_eq!(
+            hashmap! {
+                "a".to_string() => "A".to_string()
+            },
+            got.data.options
+        );
+
+        // update version to the latest
+        version = got.seq;
+    }
+
+    tracing::info!("--- update with invalid table_id");
+    {
+        let resp = m
+            .apply_cmd(&Cmd::UpsertTableOptions {
+                table_id: 0,
+                seq: MatchSeq::Exact(version - 1),
+                table_options: hashmap! {},
+            })
+            .await;
+
+        let err = resp.unwrap_err();
+
+        assert_eq!(ErrorCode::UnknownTableIdCode(), err.code());
+    }
+
+    tracing::info!("--- update with mismatched seq wont update anything");
+    {
+        let resp = m
+            .apply_cmd(&Cmd::UpsertTableOptions {
+                table_id,
+                seq: MatchSeq::Exact(version - 1),
+                table_options: hashmap! {},
+            })
+            .await?;
+
+        let ch: Change<TableMeta> = resp.try_into().unwrap();
+        let (prev, result) = ch.unwrap();
+
+        assert_eq!(prev, result);
+    }
+
+    tracing::info!("--- update OK");
+    {
+        let resp = m
+            .apply_cmd(&Cmd::UpsertTableOptions {
+                table_id,
+                seq: MatchSeq::Exact(version),
+                table_options: hashmap! {
+                    "a".to_string() => None,
+                    "c".to_string() => Some("C".to_string()),
+                },
+            })
+            .await?;
+
+        let ch: Change<TableMeta> = resp.try_into().unwrap();
+        let (prev, result) = ch.unwrap();
+
+        tracing::info!("--- check prev state is returned");
+        assert_eq!(version, prev.seq);
+        assert_eq!(
+            hashmap! {
+                "a".to_string() => "A".to_string()
+            },
+            prev.data.options
+        );
+
+        tracing::info!("--- check result state, delete a add c");
+        assert!(result.seq > version);
+        assert_eq!(
+            hashmap! {
+                "c".to_string() => "C".to_string()
+            },
+            result.data.options
+        );
+
+        tracing::info!("--- check table is updated");
+        {
+            let got = m.get_table_by_id(&table_id)?.unwrap();
+            assert!(got.seq > version);
+            assert_eq!(
+                hashmap! {
+                    "c".to_string() => "C".to_string()
+                },
+                got.data.options
+            );
+        }
     }
 
     Ok(())
@@ -272,10 +436,7 @@ async fn test_state_machine_apply_non_dup_generic_kv_upsert_get() -> anyhow::Res
             })
             .await?;
         assert_eq!(
-            AppliedState::KV {
-                prev: c.prev.clone(),
-                result: c.result.clone(),
-            },
+            AppliedState::KV(Change::new(c.prev.clone(), c.result.clone())),
             resp,
             "write: {}",
             mes,
@@ -339,10 +500,7 @@ async fn test_state_machine_apply_non_dup_generic_kv_value_meta() -> anyhow::Res
         .await?;
 
     assert_eq!(
-        AppliedState::KV {
-            prev: None,
-            result: None,
-        },
+        AppliedState::KV(Change::new(None, None)),
         resp,
         "update meta of None does nothing",
     );
@@ -456,10 +614,7 @@ async fn test_state_machine_apply_non_dup_generic_kv_delete() -> anyhow::Result<
             })
             .await?;
         assert_eq!(
-            AppliedState::KV {
-                prev: c.prev.clone(),
-                result: c.result.clone(),
-            },
+            AppliedState::KV(Change::new(c.prev.clone(), c.result.clone())),
             resp,
             "delete: {}",
             mes,
