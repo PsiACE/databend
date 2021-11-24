@@ -1540,6 +1540,7 @@ dependencies = [
  "futures",
  "pin-project-lite",
  "pretty_assertions",
+ "tempfile",
  "tokio-stream",
 ]
 
@@ -1634,9 +1635,9 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81156fece84ab6a9f2afdb109ce3ae577e42b1228441eded99bd77f627953b1a"
+checksum = "3825b1e8580894917dc4468cb634a1b4e9745fddc854edad72d9c04644c0319f"
 dependencies = [
  "cfg-if 1.0.0",
 ]
@@ -1886,8 +1887,7 @@ dependencies = [
 [[package]]
 name = "csv-async"
 version = "1.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d72072931ebe0a6f5127359bd5cf3d4ab81e79616ed9d8c438db4dfa65ddbb77"
+source = "git+https://github.com/datafuse-extras/csv-async?rev=cb521c7#cb521c73cf5996687985f83aba19afc1e49b3b8c"
 dependencies = [
  "bstr",
  "cfg-if 1.0.0",
@@ -1896,8 +1896,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -4858,9 +4856,9 @@ dependencies = [
 
 [[package]]
 name = "poem"
-version = "1.0.28"
+version = "1.0.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "901b48015940a26c5e4a2101e961a2c670b93d01e2a539c56ab633d3c93be388"
+checksum = "799316536f7b7dc4c6aba0048c08b93d2359afa1ee3fdc7e9e80f23380d88904"
 dependencies = [
  "async-trait",
  "base64 0.13.0",
@@ -6533,9 +6531,9 @@ checksum = "13a4ec180a2de59b57434704ccfad967f789b12737738798fa08798cd5824c16"
 
 [[package]]
 name = "test-env-log"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3e4b132a630cc8a0d06cfcb400da67adef3d0087a94b3332d4692908f0c2544"
+checksum = "877189d680101869f65ef94168105d6c188b3a143c13a2d42cf8a09c4c704f8a"
 dependencies = [
  "proc-macro2",
  "quote",
