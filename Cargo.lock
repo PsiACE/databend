@@ -1037,7 +1037,7 @@ dependencies = [
 [[package]]
 name = "clickhouse-driver"
 version = "0.1.0-alpha.3"
-source = "git+https://github.com/datafuse-extras/clickhouse_driver/?rev=6e0ecb2#6e0ecb2718cb5dd84ac76827e08586a48f2e719d"
+source = "git+https://github.com/datafuse-extras/clickhouse_driver?rev=6e0ecb2#6e0ecb2718cb5dd84ac76827e08586a48f2e719d"
 dependencies = [
  "byteorder",
  "bytes 0.5.6",
@@ -1063,7 +1063,7 @@ dependencies = [
 [[package]]
 name = "clickhouse-driver-cthrs"
 version = "0.1.1"
-source = "git+https://github.com/datafuse-extras/clickhouse_driver/?rev=6e0ecb2#6e0ecb2718cb5dd84ac76827e08586a48f2e719d"
+source = "git+https://github.com/datafuse-extras/clickhouse_driver?rev=6e0ecb2#6e0ecb2718cb5dd84ac76827e08586a48f2e719d"
 
 [[package]]
 name = "clipboard-win"
@@ -5082,9 +5082,9 @@ dependencies = [
 
 [[package]]
 name = "poem"
-version = "1.2.14"
+version = "1.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb0581eb36ceb10416158ec2063c3b3a3ddd07aa101d47943ed73c6f1e347419"
+checksum = "6787782cd0c186c064732c27fdc4735e412fb485557538d7dcf200de62e4d7c3"
 dependencies = [
  "async-trait",
  "bytes 1.1.0",
@@ -5114,9 +5114,9 @@ dependencies = [
 
 [[package]]
 name = "poem-derive"
-version = "1.2.14"
+version = "1.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cbef1d14bae249e06f97e824a37ccabe864c38801f3cfde7b0f96598ddc813e"
+checksum = "a28a0943f381c5f9f7140656197a7c9dabe062954897be8e5022cc860d28303e"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
