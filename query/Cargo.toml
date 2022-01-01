@@ -41,6 +41,7 @@ common-management = { path = "../common/management" }
 common-mem-allocator = { path = "../common/mem-allocator" }
 common-meta-api = { path = "../common/meta/api" }
 common-meta-embedded = { path = "../common/meta/embedded" }
+common-meta-grpc = { path = "../common/meta/grpc" }
 common-meta-sled-store = { path = "../common/meta/sled-store" }
 common-meta-raft-store = { path="../common/meta/raft-store" }
 common-meta-types = { path = "../common/meta/types" }
@@ -62,7 +63,7 @@ async-compat = "0.2.1"
 async-trait = "0.1.52"
 async-recursion = "0.3.2"
 async-stream = "0.3.2"
-poem = { version = "1.2.14", features = ["rustls", "multipart"] }
+poem = { version = "1.2.20", features = ["rustls", "multipart"] }
 bumpalo = "3.8.0"
 byteorder = "1.4.3"
 bytes = "1.1.0"
