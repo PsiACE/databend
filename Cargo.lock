@@ -2122,6 +2122,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
 
 [[package]]
+name = "databend-benchmark"
+version = "0.1.0"
+dependencies = [
+ "clap 3.0.0-rc.9",
+ "clickhouse-driver",
+ "common-base",
+ "common-exception",
+ "common-infallible",
+ "common-macros",
+ "common-tracing",
+ "crossbeam-queue 0.3.2",
+ "ctrlc",
+ "futures",
+ "quantiles",
+ "rand 0.8.4",
+ "serde",
+]
+
+[[package]]
+name = "databend-fuzz"
+version = "0.1.0"
+dependencies = [
+ "databend-query",
+ "honggfuzz",
+]
+
+[[package]]
 name = "databend-meta"
 version = "0.1.0"
 dependencies = [
@@ -2220,9 +2247,6 @@ dependencies = [
  "common-streams",
  "common-tracing",
  "criterion",
- "crossbeam 0.8.1",
- "crossbeam-queue 0.3.2",
- "ctrlc",
  "dyn-clone",
  "futures",
  "headers",
@@ -2242,7 +2266,6 @@ dependencies = [
  "poem",
  "pretty_assertions",
  "prost",
- "quantiles",
  "rand 0.8.4",
  "reqwest",
  "serde",
@@ -2929,14 +2952,6 @@ dependencies = [
  "pin-project-lite 0.2.7",
  "pin-utils",
  "slab",
-]
-
-[[package]]
-name = "fuzz"
-version = "0.1.0"
-dependencies = [
- "databend-query",
- "honggfuzz",
 ]
 
 [[package]]
@@ -5101,9 +5116,9 @@ dependencies = [
 
 [[package]]
 name = "poem"
-version = "1.2.14"
+version = "1.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb0581eb36ceb10416158ec2063c3b3a3ddd07aa101d47943ed73c6f1e347419"
+checksum = "a25bf52ab3e2d274f9c50d696babfb979c8288bd824a2b8cf620f02d419d09a5"
 dependencies = [
  "async-trait",
  "bytes 1.1.0",
@@ -5133,9 +5148,9 @@ dependencies = [
 
 [[package]]
 name = "poem-derive"
-version = "1.2.14"
+version = "1.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cbef1d14bae249e06f97e824a37ccabe864c38801f3cfde7b0f96598ddc813e"
+checksum = "c89a54994c2f21060ba248f8cf658352588cb6c2b7e0592f28778dad501d73e7"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
