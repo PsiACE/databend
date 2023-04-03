@@ -3060,6 +3060,15 @@ evaluation (internal):
 +--------+-------------------+
 
 
+ast            : to_unixtimestamp(to_timestamp(1630812366))
+raw expr       : to_unixtimestamp(to_timestamp(1630812366))
+checked expr   : to_unixtimestamp<Timestamp>(to_timestamp<Int64>(to_int64<UInt32>(1630812366_u32)))
+optimized expr : 1630812366_u32
+output type    : UInt32
+output domain  : {1630812366..=1630812366}
+output         : 1630812366
+
+
 ast            : to_start_of_second(to_timestamp(1630812366))
 raw expr       : to_start_of_second(to_timestamp(1630812366))
 checked expr   : to_start_of_second<Timestamp>(to_timestamp<Int64>(to_int64<UInt32>(1630812366_u32)))

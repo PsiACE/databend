@@ -437,6 +437,22 @@ fn register_to_number(registry: &mut FunctionRegistry) {
             }),
         },
     );
+
+    registry.register_passthrough_nullable_1_arg::<TimestampType, NumberType<u32>, _, _>(
+        "to_unixtimestamp",
+        |_| FunctionDomain::Full,
+        eval_timestamp_to_unixtimestamp,
+    );
+
+    fn eval_timestamp_to_unixtimestamp(
+        val: ValueRef<TimestampType>,
+        ctx: &mut EvalContext,
+    ) -> Value<NumberType<u32>> {
+        vectorize_with_builder_1_arg::<TimestampType, NumberType<u32>>(|val, output, _| {
+            let ts = val / MICROS_IN_A_SEC;
+            output.push(ts as u32);
+        })(val, ctx)
+    }
 }
 
 macro_rules! signed_ident {
